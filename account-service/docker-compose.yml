@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:15.1
+    cap_add:
+      - SYS_NICE
+    restart: always
+    environment:
+      - POSTGRES_DB=account
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+    ports:
+      - '15203:5432'
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres", "-d", "account" ]
+      start_period: 2s
+      interval: 2s
+      timeout: 2s
+      retries: 55
+    volumes:
+      - postgres:/data
+volumes:
+  postgres:
+    driver: local

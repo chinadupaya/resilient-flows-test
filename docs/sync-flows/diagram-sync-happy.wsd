@@ -1,0 +1,97 @@
+@startuml sync-happy
+title Synchronous Saga – Happy Path (Transactions ↔ Accounts via REST)
+
+actor User
+
+box "Transactions Microservice" #LightBlue
+participant TransactionController
+participant TransactionOrchestrator
+database TransactionsDB
+end box
+
+box "Accounts Microservice" #LightGreen
+participant AccountController
+participant AccountService
+database AccountsDB
+end box
+
+User -> TransactionController : POST /api/transactions\n(source, dest, amount)
+
+TransactionController -> TransactionOrchestrator : executeTransactionSaga()
+
+== Create Transaction ==
+
+TransactionOrchestrator -> TransactionOrchestrator : generate txnId
+TransactionOrchestrator -> TransactionsDB : INSERT transaction\nstatus=PENDING, saga=STARTED
+TransactionsDB --> TransactionOrchestrator : COMMIT OK
+
+== Saga State: RESERVATION_REQUESTED ==
+
+TransactionOrchestrator -> TransactionsDB : UPDATE saga=ACCOUNT_RESERVATION_REQUESTED
+TransactionsDB --> TransactionOrchestrator : COMMIT OK
+
+== REST Call: Reserve Amount ==
+
+TransactionOrchestrator -> AccountController : POST /api/accounts/reserve\n(txnId, source, dest, amount)
+activate AccountController
+
+AccountController -> AccountService : reserveAmount()
+
+AccountService -> AccountsDB : SELECT source account
+AccountsDB --> AccountService : account A
+AccountService -> AccountsDB : SELECT destination account
+AccountsDB --> AccountService : account B
+
+AccountService -> AccountService : validate balance >= amount
+
+AccountService -> AccountsDB : UPDATE source\nbalance -= amount\nreserved += amount
+AccountsDB --> AccountService : COMMIT OK
+
+AccountService --> AccountController : success response
+AccountController --> TransactionOrchestrator : HTTP 200 OK
+deactivate AccountController
+
+== Saga State: RESERVATION_SUCCESS ==
+
+TransactionOrchestrator -> TransactionsDB : UPDATE saga=ACCOUNT_RESERVATION_SUCCESS
+TransactionsDB --> TransactionOrchestrator : COMMIT OK
+
+== Processing Step ==
+
+TransactionOrchestrator -> TransactionsDB : UPDATE saga=TRANSACTION_PROCESSING
+TransactionsDB --> TransactionOrchestrator : COMMIT OK
+
+TransactionOrchestrator -> TransactionOrchestrator : fraud + risk + compliance checks\n(all passed)
+
+== Saga State: COMMIT_REQUESTED ==
+
+TransactionOrchestrator -> TransactionsDB : UPDATE saga=ACCOUNT_COMMIT_REQUESTED
+TransactionsDB --> TransactionOrchestrator : COMMIT OK
+
+== REST Call: Commit Transfer ==
+
+TransactionOrchestrator -> AccountController : POST /api/accounts/commit\n(txnId, source, dest, amount)
+activate AccountController
+
+AccountController -> AccountService : commitReservation()
+
+AccountService -> AccountsDB : SELECT source & destination
+AccountsDB --> AccountService : accounts loaded
+
+AccountService -> AccountsDB : UPDATE source\nreserved -= amount
+AccountService -> AccountsDB : UPDATE destination\nbalance += amount
+AccountsDB --> AccountService : COMMIT OK (single tx)
+
+AccountService --> AccountController : commit success
+AccountController --> TransactionOrchestrator : HTTP 200 OK
+deactivate AccountController
+
+== Complete Transaction ==
+
+TransactionOrchestrator -> TransactionsDB : UPDATE status=COMPLETED,\nsaga=COMPLETED
+TransactionsDB --> TransactionOrchestrator : COMMIT OK
+
+TransactionOrchestrator --> TransactionController : TransactionResponse(COMPLETED)
+TransactionController --> User : HTTP 201 Created
+
+@enduml

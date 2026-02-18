@@ -1,0 +1,109 @@
+@startuml async-happy
+title Asynchronous Saga – Happy Path (Transactions ↔ Accounts via Kafka)
+
+actor User
+
+box "Transactions Microservice" #LightBlue
+participant TransactionController
+participant TransactionService
+database TransactionsDB
+end box
+
+box "Kafka" #LightYellow
+queue "transaction.create.request" as TCreate
+queue "account.validation.success" as AValid
+queue "transaction.completed" as TCompleted
+queue "account.updated" as AUpdated
+end box
+
+box "Accounts Microservice" #LightGreen
+participant AccountService
+database AccountsDB
+end box
+
+== User Request ==
+
+User -> TransactionController : POST /api/transactions\n(source, dest, amount)
+TransactionController -> TransactionService : createTransaction()
+
+== Create Transaction ==
+
+TransactionService -> TransactionService : generate txnId
+TransactionService -> TransactionsDB : INSERT transaction\nstatus=PENDING\nsaga=ACCOUNT_VALIDATION_REQUESTED
+TransactionsDB --> TransactionService : COMMIT OK
+
+== Publish Create Request Event ==
+
+TransactionService -> TCreate : publish TransactionCreateRequestEvent
+note right of TCreate
+Kafka commit
+event available to consumers
+end note
+
+TransactionService --> TransactionController : 200 OK (PENDING)
+TransactionController --> User : transactionId returned
+
+== Account Service Consumes Create Event ==
+
+TCreate -> AccountService : TransactionCreateRequestEvent
+activate AccountService
+
+AccountService -> AccountsDB : SELECT source account
+AccountsDB --> AccountService : account A
+AccountService -> AccountsDB : SELECT destination account
+AccountsDB --> AccountService : account B
+
+AccountService -> AccountService : validate balance >= amount
+
+== Reserve Funds ==
+
+AccountService -> AccountsDB : UPDATE source\nbalance -= amount\nreserved += amount
+AccountsDB --> AccountService : COMMIT OK
+
+== Publish Validation Success ==
+
+AccountService -> AValid : publish AccountValidationSuccessEvent
+deactivate AccountService
+
+== Transaction Service Consumes Validation Success ==
+
+AValid -> TransactionService : AccountValidationSuccessEvent
+activate TransactionService
+
+TransactionService -> TransactionsDB : SELECT transaction
+TransactionsDB --> TransactionService : transaction found
+
+TransactionService -> TransactionService : update saga=ACCOUNT_VALIDATION_SUCCESS
+TransactionService -> TransactionService : processTransaction()\nfraud/risk/compliance OK
+
+== Complete Transaction ==
+
+TransactionService -> TransactionsDB : UPDATE status=COMPLETED\nsaga=COMPLETED
+TransactionsDB --> TransactionService : COMMIT OK
+
+== Publish Transaction Completed ==
+
+TransactionService -> TCompleted : publish TransactionCompletedEvent
+deactivate TransactionService
+
+
+== Account Service Consumes Completed Event ==
+
+TCompleted -> AccountService : TransactionCompletedEvent
+activate AccountService
+
+AccountService -> AccountsDB : SELECT source & destination
+AccountsDB --> AccountService : accounts loaded
+
+== Commit Transfer ==
+
+AccountService -> AccountsDB : UPDATE source\nreserved -= amount
+AccountService -> AccountsDB : UPDATE destination\nbalance += amount
+AccountsDB --> AccountService : COMMIT OK
+
+== Publish Accounts Updated ==
+
+AccountService -> AUpdated : publish AccountsUpdatedEvent
+deactivate AccountService
+
+@enduml

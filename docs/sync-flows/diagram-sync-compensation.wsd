@@ -1,0 +1,65 @@
+@startuml sync-compensation
+title Synchronous Saga – Compensation Flow (REST)
+
+actor User
+
+box "Transactions Microservice" #LightBlue
+participant TransactionController
+participant TransactionOrchestrator
+database TransactionsDB
+end box
+
+box "Accounts Microservice" #LightGreen
+participant AccountController
+participant AccountService
+database AccountsDB
+end box
+
+User -> TransactionController : POST /api/transactions
+TransactionController -> TransactionOrchestrator : executeTransactionSaga()
+
+== Create + Reserve (Succeeded Earlier) ==
+
+TransactionOrchestrator -> TransactionsDB : INSERT txn (PENDING)
+TransactionsDB --> TransactionOrchestrator : COMMIT
+
+TransactionOrchestrator -> AccountController : POST /accounts/reserve
+AccountController -> AccountService : reserveAmount()
+AccountService -> AccountsDB : UPDATE balance/reserved
+AccountsDB --> AccountService : COMMIT
+AccountController --> TransactionOrchestrator : 200 OK
+
+TransactionOrchestrator -> TransactionsDB : saga=RESERVATION_SUCCESS
+TransactionsDB --> TransactionOrchestrator : COMMIT
+
+== Processing Fails ==
+
+TransactionOrchestrator -> TransactionOrchestrator : fraud/risk/compliance ❌ FAILED
+TransactionOrchestrator -> TransactionsDB : saga=COMPENSATION_REQUIRED
+TransactionsDB --> TransactionOrchestrator : COMMIT
+
+== REST Compensation Call ==
+
+TransactionOrchestrator -> AccountController : POST /accounts/release
+activate AccountController
+AccountController -> AccountService : releaseReservation()
+
+AccountService -> AccountsDB : SELECT source account
+AccountsDB --> AccountService : account found
+
+AccountService -> AccountsDB : UPDATE source\nbalance += amount\nreserved -= amount
+AccountsDB --> AccountService : COMMIT
+
+AccountService --> AccountController : release success
+AccountController --> TransactionOrchestrator : 200 OK
+deactivate AccountController
+
+== Mark Transaction Failed ==
+
+TransactionOrchestrator -> TransactionsDB : UPDATE status=FAILED\nsaga=COMPENSATED
+TransactionsDB --> TransactionOrchestrator : COMMIT
+
+TransactionOrchestrator --> TransactionController : error response
+TransactionController --> User : HTTP 409 Failed
+
+@enduml

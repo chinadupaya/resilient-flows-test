@@ -1,0 +1,117 @@
+@startuml test
+left to right direction
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+actor Client
+
+package "Spring Boot / JPA Services" as SPRINGPKG{
+
+  component "Account Service\n<<aggregate>> Account" as ACCT {
+    [Event Publisher] as ACCT_EP
+    [Event Handler] as ACCT_EH
+    [JPA] as ACCT_JPA
+  }
+
+  component "Transaction Service\n<<aggregate>> Transaction" as TRNSC {
+    [Event Publisher] as TRNSC_EP
+    [Event Handler] as TRNSC_EH
+    [JPA] as TRNSC_JPA
+  }
+
+  ' ' alternative: replace with bigquery to emulate reconciliation
+  ' component "Transaction History Service" as OHS {
+  '   [Event Handler] as THS_EH
+  '   [CQRS Writer] as OHS_CQRS
+  ' }
+}
+
+package "BigQuery" {
+  database "BigQuery" as BQ {
+    
+  }
+  component "Event Handler" as THS_EH
+}
+
+package "PostgreSQL" {
+
+  database "ACCOUNT table" as DB_ACCOUNT {
+    [ID]
+    [AMOUNT]
+  }
+
+
+  collections "Write Ahead Log" as WAL
+}
+
+package "Spanner"{
+
+    database "TRANSACTION table" as DB_TRANSACTION {
+        [ID]
+        [ACCOUNT_ID]
+        [TRANSACTION_TOTAL]
+    }
+
+    collections "Spanner Change Streams" as SPANNER_CS
+
+}
+
+package "Apache Kafka" {
+  queue "Account topic" as K_ACCOUNT
+  queue "Transaction topic" as K_TRANSACTION
+}
+
+' =====================
+' REST endpoints
+' =====================
+
+Client --> ACCT : POST /account
+Client --> TRNSC : POST /transactions\nGET /transactions/{transactionId}
+' Client --> OHS : GET /account/{accountId}\nGET /transactions/{transactionId}
+
+' =====================
+' Account Service flow
+' =====================
+
+ACCT --> ACCT_JPA
+' ACCT --> ACCT_EP
+ACCT_JPA --> DB_ACCOUNT : update
+' 
+' ACCT_EP --> DB_MESSAGE_PS : publish events
+ACCT_EP -[#red]> K_ACCOUNT : <font color=red>publish events
+ACCT_EH ...[#0000FF]> K_TRANSACTION : <font color=blue>subscribes to
+
+' =====================
+' Transaction Service flow
+' =====================
+
+TRNSC --> TRNSC_JPA
+TRNSC_JPA --> DB_TRANSACTION : update
+' TRNSC_JPA ... TRNSC_EP
+
+' TRNSC_EP --> DB_MESSAGE_SP : publish events
+TRNSC_EP -[#red]> K_TRANSACTION : <font color=red>publish events
+TRNSC_EH ...[#0000FF]> K_ACCOUNT : <font color=blue>subscribes to
+
+
+' =====================
+' Transaction History Service
+' =====================
+
+THS_EH ...[#0000FF]> K_ACCOUNT : <font color=blue>subscribes to
+THS_EH ...[#0000FF]> K_TRANSACTION : <font color=blue>ssubscribes to
+THS_EH --> BQ : pushes to
+
+note bottom of SPRINGPKG
+Considerations:
+- Idempotency keys
+- Dead letter queue
+- Circuit breaker for REST calls
+ between microservices
+end note
+
+note bottom of SPRINGPKG
+Events are published to Kafka
+after being saved in DB
+end note
+@enduml

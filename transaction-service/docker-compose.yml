@@ -1,0 +1,18 @@
+services:
+  spanner-emulator:
+    image: gcr.io/cloud-spanner-emulator/emulator
+    container_name: spanner-emulator
+    ports:
+      - "9010:9010"
+      - "9020:9020"
+    restart: unless-stopped
+
+  spanner-init:
+    image: curlimages/curl:latest
+    container_name: spanner-init
+    depends_on:
+      - spanner-emulator
+    restart: "no"
+    volumes:
+      - ./scripts:/scripts
+    entrypoint: ["/bin/sh", "/scripts/init-spanner.sh"]

@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: transaction-service
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.liquibase.LiquibaseAutoConfiguration
+      - com.google.cloud.spring.autoconfigure.spanner.SpannerTransactionManagerAutoConfiguration
+  cloud:
+    gcp:
+      project-id: test-project
+      spanner:
+        project-id: test-project
+        instance-id: test-instance
+        database: test-database
+        emulator:
+          enabled: true
+
+server:
+  port: 9090
+
+accounts:
+  service:
+    url: http://localhost:8080
