@@ -44,7 +44,7 @@ AccountsDB --> AccountService : account B
 
 AccountService -> AccountService : validate balance >= amount
 
-AccountService -> AccountsDB : UPDATE source\nbalance -= amount\nreserved += amount
+AccountService -> AccountsDB : UPDATE source\nreserved += amount
 AccountsDB --> AccountService : COMMIT OK
 
 AccountService --> AccountController : success response
@@ -78,7 +78,7 @@ AccountController -> AccountService : commitReservation()
 AccountService -> AccountsDB : SELECT source & destination
 AccountsDB --> AccountService : accounts loaded
 
-AccountService -> AccountsDB : UPDATE source\nreserved -= amount
+AccountService -> AccountsDB : UPDATE source\nbalance -= amount\nreserved -= amount
 AccountService -> AccountsDB : UPDATE destination\nbalance += amount
 AccountsDB --> AccountService : COMMIT OK (single tx)
 

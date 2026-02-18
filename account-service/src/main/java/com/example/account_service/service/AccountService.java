@@ -49,11 +49,6 @@ public class AccountService {
 
     @Transactional
     public AccountReservationResponse reserveAmount(AccountReservationRequest request) {
-        // Fetch account or throw — no silent nulls
-        System.out.println("Value: " + request.sourceAccountId());
-        System.out.println("Is null? " + (request.sourceAccountId() == null));
-        System.out.println("Type: " + (request.sourceAccountId() == null ? "null" : request.sourceAccountId().getClass()));
-
         Account account = accountRepository.findByIdWithLock(request.sourceAccountId())
                 .orElseThrow(() -> new AccountNotFoundException(
                     "Account not found: " + request.sourceAccountId()));

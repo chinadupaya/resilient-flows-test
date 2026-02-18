@@ -3,15 +3,24 @@ package com.example.transaction_service.model.dto;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-public class CreateTransactionRequest {
-
+public class TransactionEvent {
+    private UUID transactionId;
     private UUID sourceAccountId;
     private UUID destinationAccountId;
     private BigDecimal amount;
-    private String type; // sync or async
 
-    public String getType() { return type; }
-    public void setType(String type) { this.type = type; }
+    public TransactionEvent() {}
+
+    public TransactionEvent(UUID transactionId, UUID sourceAccountId, 
+                           UUID destinationAccountId, BigDecimal amount) {
+        this.transactionId = transactionId;
+        this.sourceAccountId = sourceAccountId;
+        this.destinationAccountId = destinationAccountId;
+        this.amount = amount;
+    }
+
+    public UUID getTransactionId() { return transactionId; }
+    public void setTransactionId(UUID transactionId) { this.transactionId = transactionId; }
     public UUID getSourceAccountId() { return sourceAccountId; }
     public void setSourceAccountId(UUID sourceAccountId) { this.sourceAccountId = sourceAccountId; }
     public UUID getDestinationAccountId() { return destinationAccountId; }

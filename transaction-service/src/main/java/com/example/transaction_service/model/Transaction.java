@@ -18,6 +18,9 @@ public class Transaction {
     @Column(name = "source_account_id")
     private String sourceAccountId;
 
+    @Column(name = "destination_account_id")
+    private String destinationAccountId;
+
     @Column(name = "amount")
     private BigDecimal amount;
 
@@ -47,6 +50,8 @@ public class Transaction {
     public void setId(String id) { this.id = id; }
     public String getSourceAccountId() { return sourceAccountId; }
     public void setSourceAccountId(String sourceAccountId) { this.sourceAccountId = sourceAccountId; }
+    public String getDestinationAccountId() { return destinationAccountId; }
+    public void setDestinationAccountId(String destinationAccountId) { this.destinationAccountId = destinationAccountId; }
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public String getStatus() { return status; }

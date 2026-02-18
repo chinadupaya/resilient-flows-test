@@ -34,6 +34,7 @@ public class TransactionService {
         // Transaction constructor auto-generates the UUID
         Transaction transaction = new Transaction();
         transaction.setSourceAccountId(request.getSourceAccountId().toString());
+        transaction.setDestinationAccountId(request.getDestinationAccountId().toString());
         transaction.setAmount(request.getAmount());
         transaction.setStatus(TransactionStatus.PENDING.name());
         transaction.setSagaState(SagaState.STARTED.name());
@@ -103,7 +104,23 @@ public class TransactionService {
             return compensate(transaction, reservationRequest, e.getMessage());
         }
     }
+    public Transaction createTransactionInitial(CreateTransactionRequest request) {
+    // Create transaction with STARTED saga, PENDING status - don't process
+    Transaction transaction = new Transaction();
+    transaction.setSourceAccountId(request.getSourceAccountId().toString());
+    transaction.setDestinationAccountId(request.getDestinationAccountId().toString());
+    transaction.setAmount(request.getAmount());
+    transaction.setStatus(TransactionStatus.PENDING.name());
+    transaction.setSagaState(SagaState.STARTED.name());
+    transaction.setCreatedAt(Instant.now());
+    transaction.setUpdatedAt(Instant.now());
+    transaction.setVersion(0);
 
+    transactionRepository.save(transaction);
+    log.info("Transaction {} created (async - awaiting Kafka processing)", transaction.getId());
+
+    return transaction;
+}
     public Iterable<Transaction> getAllTransactions() {
         return transactionRepository.findAll();
     }
