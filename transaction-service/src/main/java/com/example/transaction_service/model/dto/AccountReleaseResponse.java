@@ -1,4 +1,4 @@
-package com.example.account_service.model.dto;
+package com.example.transaction_service.model.dto;
 
 import java.math.BigDecimal;
 import java.util.UUID;

@@ -1,6 +1,8 @@
 package com.example.transaction_service.config;
 
-import com.example.transaction_service.model.dto.TransactionEvent;
+import com.example.transaction_service.events.AccountEvent;
+import com.example.transaction_service.events.TransactionEvent;
+
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -39,20 +41,28 @@ public class KafkaConfig {
 
     // Consumer Configuration
     @Bean
-    public ConsumerFactory<String, TransactionEvent> consumerFactory() {
-        Map<String, Object> config = new HashMap<>();
-        config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        config.put(ConsumerConfig.GROUP_ID_CONFIG, "transaction-service-group");
-        config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
-        config.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
-        config.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TransactionEvent.class.getName());
-        return new DefaultKafkaConsumerFactory<>(config);
+    public ConsumerFactory<String, AccountEvent> consumerFactory() {
+
+        JsonDeserializer<AccountEvent> deserializer =
+                new JsonDeserializer<>(AccountEvent.class);
+
+        deserializer.addTrustedPackages("com.example.account_service.events");
+        deserializer.setUseTypeHeaders(false);
+
+        return new DefaultKafkaConsumerFactory<>(
+                Map.of(
+                        ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
+                        ConsumerConfig.GROUP_ID_CONFIG, "transaction-service-group"
+                ),
+                new StringDeserializer(),
+                deserializer
+        );
     }
 
+
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, TransactionEvent> kafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, TransactionEvent> factory =
+    public ConcurrentKafkaListenerContainerFactory<String, AccountEvent> kafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, AccountEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
         return factory;

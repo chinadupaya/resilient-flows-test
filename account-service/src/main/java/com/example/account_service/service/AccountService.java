@@ -5,29 +5,35 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.account_service.model.Account;
-import com.example.account_service.model.dto.AccountCommitRequest;
-import com.example.account_service.model.dto.AccountCommitResponse;
-import com.example.account_service.model.dto.AccountReservationRequest;
-import com.example.account_service.model.dto.AccountReservationResponse;
-import com.example.account_service.model.dto.AccountReleaseRequest;
-import com.example.account_service.model.dto.AccountReleaseResponse;
+import com.example.account_service.model.dto.*;
 import com.example.account_service.repository.AccountRepository;
+import com.example.account_service.events.TransactionEvent;
 import com.example.account_service.exception.AccountNotFoundException;
 import com.example.account_service.exception.InsufficientBalanceException;
+import com.example.account_service.service.AccountProducer;
 
 @Service
 public class AccountService {
 
-    private final AccountRepository accountRepository;
+    private static final Logger log = LoggerFactory.getLogger(AccountService.class);
 
-    // Constructor injection — preferred over @Autowired
-    public AccountService(AccountRepository accountRepository) {
+    private final AccountRepository accountRepository;
+    private final AccountProducer accountProducer;
+
+    public AccountService(AccountRepository accountRepository, AccountProducer accountProducer) {
         this.accountRepository = accountRepository;
+        this.accountProducer = accountProducer;
     }
+
+    // ============================================================================
+    // ACCOUNT MANAGEMENT (CRUD)
+    // ============================================================================
 
     public Account createAccount(String accountHolderName) {
         Account account = Account.builder()
@@ -35,7 +41,6 @@ public class AccountService {
                 .balance(BigDecimal.ZERO)
                 .reservedAmount(BigDecimal.ZERO)
                 .build();
-
         return accountRepository.save(account);
     }
 
@@ -47,100 +52,241 @@ public class AccountService {
         return accountRepository.findById(id);
     }
 
+    // ============================================================================
+    // SYNC FLOW - Called by REST Controller (returns response directly)
+    // ============================================================================
+
     @Transactional
-    public AccountReservationResponse reserveAmount(AccountReservationRequest request) {
-        Account account = accountRepository.findByIdWithLock(request.sourceAccountId())
+    public AccountReservationResponse reserveAmountSync(AccountReservationRequest request) {
+        log.info("Processing SYNC reservation for transaction {}", request.transactionId());
+        
+        try {
+            return doReservation(request.sourceAccountId(), request.amount(), request.transactionId());
+        } catch (AccountNotFoundException | InsufficientBalanceException e) {
+            log.error("Reservation failed for transaction {}: {}", request.transactionId(), e.getMessage());
+            return AccountReservationResponse.failure(
+                request.transactionId(),
+                request.sourceAccountId(),
+                request.amount(),
+                e.getMessage()
+            );
+        }
+    }
+
+    @Transactional
+    public AccountCommitResponse commitReservationSync(AccountCommitRequest request) {
+        log.info("Processing SYNC commit for transaction {}", request.transactionId());
+        
+        try {
+            return doCommit(request.sourceAccountId(), request.destinationAccountId(), 
+                          request.amount(), request.transactionId());
+        } catch (AccountNotFoundException | InsufficientBalanceException e) {
+            log.error("Commit failed for transaction {}: {}", request.transactionId(), e.getMessage());
+            return AccountCommitResponse.failure(
+                request.transactionId(),
+                request.sourceAccountId(),
+                request.amount(),
+                e.getMessage()
+            );
+        }
+    }
+
+    @Transactional
+    public AccountReleaseResponse releaseReservationSync(AccountReleaseRequest request) {
+        log.info("Processing SYNC release for transaction {}", request.transactionId());
+        
+        try {
+            return doRelease(request.accountId(), request.amount(), request.transactionId());
+        } catch (AccountNotFoundException | InsufficientBalanceException e) {
+            log.error("Release failed for transaction {}: {}", request.transactionId(), e.getMessage());
+            return AccountReleaseResponse.failure(
+                request.transactionId(),
+                request.accountId(),
+                request.amount(),
+                e.getMessage()
+            );
+        }
+    }
+
+    // ============================================================================
+    // ASYNC FLOW - Called by Kafka Consumer (publishes event response)
+    // ============================================================================
+
+    @Transactional
+    public void processReservationAsync(TransactionEvent event) {
+        log.info("Processing ASYNC reservation for transaction {}", event.getTransactionId());
+        
+        AccountReservationResponse response;
+        try {
+            response = doReservation(
+            event.getSourceAccountId(), 
+            event.getAmount(), 
+            event.getTransactionId()
+        );
+        
+        log.info("Funds reserved successfully for transaction {}", event.getTransactionId());
+            
+        } catch (AccountNotFoundException | InsufficientBalanceException e) {
+            log.error("Reservation failed for transaction {}: {}", event.getTransactionId(), e.getMessage());
+            
+            response = AccountReservationResponse.failure(
+                event.getTransactionId(),
+                event.getSourceAccountId(),
+                event.getAmount(),
+                e.getMessage()
+            );
+        } catch (Exception e) {
+            log.error("Unexpected error processing reservation for transaction {}: {}", 
+                event.getTransactionId(), e.getMessage());
+            
+            response = AccountReservationResponse.failure(
+                event.getTransactionId(),
+                event.getSourceAccountId(),
+                event.getAmount(),
+                "Unexpected error: " + e.getMessage()
+            );
+        }
+        
+        accountProducer.publishReservationResponse(response);
+    }
+
+    @Transactional
+    public void processCommitAsync(TransactionEvent event) {
+        log.info("Processing ASYNC commit for transaction {}", event.getTransactionId());
+        
+        AccountCommitResponse response;
+        try {
+            response = doCommit(
+                event.getSourceAccountId(),
+                event.getDestinationAccountId(),
+                event.getAmount(),
+                event.getTransactionId()
+            );
+            
+            log.info("Transaction {} committed successfully", event.getTransactionId());
+            
+        } catch (AccountNotFoundException | InsufficientBalanceException e) {
+            log.error("Commit failed for transaction {}: {}", event.getTransactionId(), e.getMessage());
+            
+            response = AccountCommitResponse.failure(
+                    event.getTransactionId(),
+                    event.getSourceAccountId(),
+                    event.getAmount(),
+                    e.getMessage()
+                );
+        } catch (Exception e) {
+            log.error("Unexpected error committing transaction {}: {}", 
+                event.getTransactionId(), e.getMessage());
+            
+            response = AccountCommitResponse.failure(
+                    event.getTransactionId(),
+                    event.getSourceAccountId(),
+                    event.getAmount(),
+                    "Unexpected error: " + e.getMessage()
+                );
+        }
+        
+        accountProducer.publishCommitResponse(response);
+    }
+
+    @Transactional
+    public void processReleaseAsync(TransactionEvent event) {
+        log.info("Processing ASYNC release for transaction {}", event.getTransactionId());
+        
+        try {
+            doRelease(event.getSourceAccountId(), event.getAmount(), event.getTransactionId());
+            log.info("Funds released for transaction {}", event.getTransactionId());
+        } catch (Exception e) {
+            log.error("Error releasing funds for transaction {}: {}", 
+                event.getTransactionId(), e.getMessage());
+        }
+    }
+
+    // ============================================================================
+    // PRIVATE CORE BUSINESS LOGIC (used by both sync and async)
+    // ============================================================================
+
+    private AccountReservationResponse doReservation(UUID sourceAccountId, BigDecimal amount, UUID transactionId) {
+        Account account = accountRepository.findByIdWithLock(sourceAccountId)
                 .orElseThrow(() -> new AccountNotFoundException(
-                    "Account not found: " + request.sourceAccountId()));
+                    "Account not found: " + sourceAccountId));
 
-        // Calculate available balance (total balance minus already reserved)
-        BigDecimal availableBalance = account.getBalance()
-                .subtract(account.getReservedAmount());
+        BigDecimal availableBalance = account.getBalance().subtract(account.getReservedAmount());
 
-        if (availableBalance.compareTo(request.amount()) < 0) {
+        if (availableBalance.compareTo(amount) < 0) {
             throw new InsufficientBalanceException(
-                "Insufficient balance. Available: " + availableBalance
-                + ", Requested: " + request.amount());
+                "Insufficient balance. Available: " + availableBalance + ", Requested: " + amount);
         }
 
-        // Add to reserved amount — does not deduct balance until settlement
-        account.setReservedAmount(account.getReservedAmount().add(request.amount()));
+        account.setReservedAmount(account.getReservedAmount().add(amount));
         accountRepository.save(account);
 
-        BigDecimal remainingBalance = account.getBalance()
-                .subtract(account.getReservedAmount());
+        BigDecimal remainingBalance = account.getBalance().subtract(account.getReservedAmount());
 
         return AccountReservationResponse.success(
-            request.transactionId(),
+            transactionId,
             account.getId(),
-            request.amount(),
+            amount,
             remainingBalance
         );
     }
 
-    @Transactional
-    public AccountCommitResponse commitReservation(AccountCommitRequest request) {
-        // Fetch account with lock to prevent concurrent modifications
-        Account account = accountRepository.findByIdWithLock(request.sourceAccountId())
+    private AccountCommitResponse doCommit(UUID sourceAccountId, UUID destinationAccountId, 
+                                          BigDecimal amount, UUID transactionId) {
+        Account sourceAccount = accountRepository.findByIdWithLock(sourceAccountId)
                 .orElseThrow(() -> new AccountNotFoundException(
-                    "Source Account not found: " + request.sourceAccountId()));
+                    "Source account not found: " + sourceAccountId));
 
-        Account destAccount = accountRepository.findByIdWithLock(request.destinationAccountId())
-                .orElseThrow(() -> new AccountNotFoundException("Destination Account not found: " + request.sourceAccountId()));
+        Account destAccount = accountRepository.findByIdWithLock(destinationAccountId)
+                .orElseThrow(() -> new AccountNotFoundException(
+                    "Destination account not found: " + destinationAccountId));
 
-        // Check that reserved amount covers what we're trying to commit
-        if (account.getReservedAmount().compareTo(request.amount()) < 0) {
+        if (sourceAccount.getReservedAmount().compareTo(amount) < 0) {
             throw new InsufficientBalanceException(
-                "Reserved amount insufficient. Reserved: " + account.getReservedAmount()
-                + ", Requested to commit: " + request.amount());
+                "Reserved amount insufficient. Reserved: " + sourceAccount.getReservedAmount() 
+                + ", Requested: " + amount);
         }
 
-        // Deduct from both balance and reserved amount — this is the actual settlement
-        account.setBalance(account.getBalance().subtract(request.amount()));
-        account.setReservedAmount(account.getReservedAmount().subtract(request.amount()));
-        accountRepository.save(account);
+        // Deduct from source
+        sourceAccount.setBalance(sourceAccount.getBalance().subtract(amount));
+        sourceAccount.setReservedAmount(sourceAccount.getReservedAmount().subtract(amount));
+        accountRepository.save(sourceAccount);
 
-        destAccount.setBalance(destAccount.getBalance().add(request.amount()));
+        // Credit to destination
+        destAccount.setBalance(destAccount.getBalance().add(amount));
         accountRepository.save(destAccount);
 
         return AccountCommitResponse.success(
-            request.transactionId(),
-            account.getId(),
-            request.amount(),
-            account.getBalance(),
+            transactionId,
+            sourceAccount.getId(),
+            amount,
+            sourceAccount.getBalance(),
             destAccount.getId(),
             destAccount.getBalance()
         );
     }
 
-    @Transactional
-    public AccountReleaseResponse releaseReservation(AccountReleaseRequest request) {
-        // Fetch account with lock to prevent concurrent modifications
-        Account account = accountRepository.findByIdWithLock(request.accountId())
+    private AccountReleaseResponse doRelease(UUID accountId, BigDecimal amount, UUID transactionId) {
+        Account account = accountRepository.findByIdWithLock(accountId)
                 .orElseThrow(() -> new AccountNotFoundException(
-                    "Account not found: " + request.accountId()));
+                    "Account not found: " + accountId));
 
-        // Check that there is enough reserved amount to roll back
-        if (account.getReservedAmount().compareTo(request.amount()) < 0) {
+        if (account.getReservedAmount().compareTo(amount) < 0) {
             throw new InsufficientBalanceException(
-                "Cannot release more than reserved. Reserved: " + account.getReservedAmount()
-                + ", Requested release: " + request.amount());
+                "Cannot release more than reserved. Reserved: " + account.getReservedAmount() 
+                + ", Requested: " + amount);
         }
 
-        // Release the reservation — balance is untouched, only reservedAmount decreases
-        account.setReservedAmount(account.getReservedAmount().subtract(request.amount()));
+        account.setReservedAmount(account.getReservedAmount().subtract(amount));
         accountRepository.save(account);
 
-        // Available balance is balance minus what's still reserved after release
-        BigDecimal availableBalance = account.getBalance()
-                .subtract(account.getReservedAmount());
+        BigDecimal availableBalance = account.getBalance().subtract(account.getReservedAmount());
 
         return AccountReleaseResponse.success(
-            request.transactionId(),
+            transactionId,
             account.getId(),
-            request.amount(),
+            amount,
             availableBalance
         );
     }
-
 }

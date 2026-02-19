@@ -61,20 +61,20 @@ public class AccountController {
         log.info("Received reservation request for transaction: {}", request.transactionId());
         
         try {
-            AccountReservationResponse response = accountService.reserveAmount(request);
+            AccountReservationResponse response = accountService.reserveAmountSync(request);
             return ResponseEntity.ok(response);
         } catch (InsufficientBalanceException e) {
             log.warn("Insufficient balance: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(AccountReservationResponse.failed(request.transactionId(), e.getMessage()));
+                .body(AccountReservationResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         } catch (AccountNotFoundException e) {
             log.error("Account not found: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(AccountReservationResponse.failed(request.transactionId(), e.getMessage()));
+                .body(AccountReservationResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         } catch (Exception e) {
             log.error("Error reserving amount", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(AccountReservationResponse.failed(request.transactionId(), "Internal server error"));
+                .body(AccountReservationResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         }
     }
 
@@ -84,20 +84,20 @@ public class AccountController {
         log.info("Received commit request for transaction: {}", request.transactionId());
 
         try {
-            AccountCommitResponse response = accountService.commitReservation(request);
+            AccountCommitResponse response = accountService.commitReservationSync(request);
             return ResponseEntity.ok(response);
         } catch (InsufficientBalanceException e) {
             log.warn("Insufficient reserved amount: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(AccountCommitResponse.failed(request.transactionId(), e.getMessage()));
+                .body(AccountCommitResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         } catch (AccountNotFoundException e) {
             log.error("Account not found: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(AccountCommitResponse.failed(request.transactionId(), e.getMessage()));
+                .body(AccountCommitResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         } catch (Exception e) {
             log.error("Error committing reservation", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(AccountCommitResponse.failed(request.transactionId(), "Internal server error"));
+                .body(AccountCommitResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         }
     }
 
@@ -107,20 +107,20 @@ public class AccountController {
         log.info("Received release request for transaction: {}", request.transactionId());
 
         try {
-            AccountReleaseResponse response = accountService.releaseReservation(request);
+            AccountReleaseResponse response = accountService.releaseReservationSync(request);
             return ResponseEntity.ok(response);
         } catch (InsufficientBalanceException e) {
             log.warn("Cannot release, insufficient reserved amount: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(AccountReleaseResponse.failed(request.transactionId(), e.getMessage()));
+                .body(AccountReleaseResponse.failure(request.transactionId(), request.accountId(), request.amount(), e.getMessage()));
         } catch (AccountNotFoundException e) {
             log.error("Account not found: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(AccountReleaseResponse.failed(request.transactionId(), e.getMessage()));
+                .body(AccountReleaseResponse.failure(request.transactionId(), request.accountId(), request.amount(), e.getMessage()));
         } catch (Exception e) {
             log.error("Error rolling back reservation", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(AccountReleaseResponse.failed(request.transactionId(), "Internal server error"));
+                .body(AccountReleaseResponse.failure(request.transactionId(), request.accountId(), request.amount(), e.getMessage()));
         }
     }
 

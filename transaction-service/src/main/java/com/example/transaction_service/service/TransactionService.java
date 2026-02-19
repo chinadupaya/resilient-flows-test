@@ -2,7 +2,9 @@ package com.example.transaction_service.service;
 
 import com.example.transaction_service.model.dto.AccountReservationRequest;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
-import com.example.transaction_service.model.dto.TransactionEvent;
+import com.example.transaction_service.events.AccountCommitEvent;
+import com.example.transaction_service.events.AccountReservationEvent;
+import com.example.transaction_service.events.TransactionEvent;
 import com.example.transaction_service.model.SagaState;
 import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.TransactionStatus;
@@ -137,6 +139,14 @@ public class TransactionService {
         transactionProducer.publishTransactionEvent(event);
         return transaction;
     }
+    public void handleReservationResponse(AccountReservationEvent event) {
+        log.info("Transaction Service - handleReservationResponse");
+    }
+
+    public void handleCommitResponse(AccountCommitEvent event) {
+        log.info("Transaction Service - handleReservationResponse");
+    }
+
     public Iterable<Transaction> getAllTransactions() {
         return transactionRepository.findAll();
     }
