@@ -5,7 +5,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
+import com.example.account_service.events.TransactionCompletedEvent;
+import com.example.account_service.events.TransactionCreatedEvent;
 import com.example.account_service.events.TransactionEvent;
+import com.example.account_service.events.TransactionFailedEvent;
 
 @Service
 public class TransactionConsumer {
@@ -18,9 +21,22 @@ public class TransactionConsumer {
     }
 
     @KafkaListener(topics = "transaction-events", groupId = "account-service-group")
-    public void handleTransactionCreated(TransactionEvent event) {
-        log.info("Received transaction created event: {}", event.getTransactionId());
-        accountService.processReservationAsync(event);
+    public void listen(TransactionEvent event) {
+        log.info("Received transaction event: {}", event.eventType());
+        switch (event) {
+            case TransactionCreatedEvent created -> {
+                // handle created
+                accountService.processReservationAsync(created);
+        }
+        case TransactionCompletedEvent completed -> {
+            // handle completed
+            accountService.processCommitAsync(completed);
+        }
+        case TransactionFailedEvent failed -> {
+            // handle failed
+            accountService.processReleaseAsync(failed);
+        }
+    }
     }
 
     // @KafkaListener(topics = "account-commit-requests", groupId = "account-service-group")

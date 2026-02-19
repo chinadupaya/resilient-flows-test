@@ -2,7 +2,9 @@ package com.example.transaction_service.service;
 
 import org.springframework.stereotype.Service;
 
-import com.example.transaction_service.model.dto.TransactionEvent;
+import com.example.transaction_service.events.TransactionCompletedEvent;
+import com.example.transaction_service.events.TransactionCreatedEvent;
+import com.example.transaction_service.events.TransactionEvent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,8 +22,8 @@ public class TransactionProducer {
         this.kafkaTemplate = kafkaTemplate;
     }
 
-    public void publishTransactionEvent(TransactionEvent event) {
-        log.info("Publishing transaction event to Kafka: {}", event.getTransactionId());
-        kafkaTemplate.send(TOPIC, event.getTransactionId().toString(), event);  // Convert UUID to String for Kafka key
+    public void publishTransactionCreated(TransactionCreatedEvent event) {
+        log.info("Publishing transaction created event to Kafka: {}", event.transactionId());
+        kafkaTemplate.send(TOPIC, event.transactionId().toString(), event);  // Convert UUID to String for Kafka key
     }
 }

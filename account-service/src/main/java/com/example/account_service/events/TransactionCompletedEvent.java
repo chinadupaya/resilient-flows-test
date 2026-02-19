@@ -1,4 +1,4 @@
-package com.example.transaction_service.events;
+package com.example.account_service.events;
 import java.math.BigDecimal;
 import java.util.UUID;
 import java.time.Instant;

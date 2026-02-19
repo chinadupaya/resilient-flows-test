@@ -8,9 +8,6 @@ import org.springframework.stereotype.Service;
 import com.example.transaction_service.events.AccountCommitEvent;
 import com.example.transaction_service.events.AccountEvent;
 import com.example.transaction_service.events.AccountReservationEvent;
-import com.example.transaction_service.events.TransactionEvent;
-import com.example.transaction_service.model.dto.CreateTransactionRequest;
-
 
 @Service
 public class AccountConsumer {

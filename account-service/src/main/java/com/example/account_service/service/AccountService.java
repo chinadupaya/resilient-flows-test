@@ -13,7 +13,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.example.account_service.model.Account;
 import com.example.account_service.model.dto.*;
 import com.example.account_service.repository.AccountRepository;
-import com.example.account_service.events.TransactionEvent;
+import com.example.account_service.events.TransactionCompletedEvent;
+import com.example.account_service.events.TransactionCreatedEvent;
+
+import com.example.account_service.events.TransactionFailedEvent;
 import com.example.account_service.exception.AccountNotFoundException;
 import com.example.account_service.exception.InsufficientBalanceException;
 import com.example.account_service.service.AccountProducer;
@@ -113,7 +116,7 @@ public class AccountService {
     // ============================================================================
 
     @Transactional
-    public void processReservationAsync(TransactionEvent event) {
+    public void processReservationAsync(TransactionCreatedEvent event) {
         log.info("Processing ASYNC reservation for transaction {}", event.getTransactionId());
         
         AccountReservationResponse response;
@@ -151,37 +154,37 @@ public class AccountService {
     }
 
     @Transactional
-    public void processCommitAsync(TransactionEvent event) {
-        log.info("Processing ASYNC commit for transaction {}", event.getTransactionId());
+    public void processCommitAsync(TransactionCompletedEvent event) {
+        log.info("Processing ASYNC commit for transaction {}", event.transactionId());
         
         AccountCommitResponse response;
         try {
             response = doCommit(
-                event.getSourceAccountId(),
-                event.getDestinationAccountId(),
-                event.getAmount(),
-                event.getTransactionId()
+                event.sourceAccountId(),
+                event.destinationAccountId(),
+                event.amount(),
+                event.transactionId()
             );
             
-            log.info("Transaction {} committed successfully", event.getTransactionId());
+            log.info("Transaction {} committed successfully", event.transactionId());
             
         } catch (AccountNotFoundException | InsufficientBalanceException e) {
-            log.error("Commit failed for transaction {}: {}", event.getTransactionId(), e.getMessage());
+            log.error("Commit failed for transaction {}: {}", event.transactionId(), e.getMessage());
             
             response = AccountCommitResponse.failure(
-                    event.getTransactionId(),
-                    event.getSourceAccountId(),
-                    event.getAmount(),
+                    event.transactionId(),
+                    event.sourceAccountId(),
+                    event.amount(),
                     e.getMessage()
                 );
         } catch (Exception e) {
             log.error("Unexpected error committing transaction {}: {}", 
-                event.getTransactionId(), e.getMessage());
+                event.transactionId(), e.getMessage());
             
             response = AccountCommitResponse.failure(
-                    event.getTransactionId(),
-                    event.getSourceAccountId(),
-                    event.getAmount(),
+                    event.transactionId(),
+                    event.sourceAccountId(),
+                    event.amount(),
                     "Unexpected error: " + e.getMessage()
                 );
         }
@@ -190,15 +193,15 @@ public class AccountService {
     }
 
     @Transactional
-    public void processReleaseAsync(TransactionEvent event) {
-        log.info("Processing ASYNC release for transaction {}", event.getTransactionId());
+    public void processReleaseAsync(TransactionFailedEvent event) {
+        log.info("Processing ASYNC release for transaction {}", event.transactionId());
         
         try {
-            doRelease(event.getSourceAccountId(), event.getAmount(), event.getTransactionId());
-            log.info("Funds released for transaction {}", event.getTransactionId());
+            doRelease(event.accountId(), event.amount(), event.transactionId());
+            log.info("Funds released for transaction {}", event.transactionId());
         } catch (Exception e) {
             log.error("Error releasing funds for transaction {}: {}", 
-                event.getTransactionId(), e.getMessage());
+                event.transactionId(), e.getMessage());
         }
     }
 

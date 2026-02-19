@@ -4,7 +4,8 @@ import com.example.transaction_service.model.dto.AccountReservationRequest;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
 import com.example.transaction_service.events.AccountCommitEvent;
 import com.example.transaction_service.events.AccountReservationEvent;
-import com.example.transaction_service.events.TransactionEvent;
+import com.example.transaction_service.events.TransactionCreatedEvent;
+import com.example.transaction_service.events.TransactionEventOLD;
 import com.example.transaction_service.model.SagaState;
 import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.TransactionStatus;
@@ -129,18 +130,27 @@ public class TransactionService {
         log.info("Transaction {} created (async - awaiting Kafka processing)", transaction.getId());
         
         // Publish to Kafka instead of Spring events
-        TransactionEvent event = new TransactionEvent(
+        TransactionCreatedEvent event = new TransactionCreatedEvent(
             UUID.fromString(transaction.getId()),
             request.getSourceAccountId(),
             request.getDestinationAccountId(),
             transaction.getAmount()
         );
-
-        transactionProducer.publishTransactionEvent(event);
+        
+        transactionProducer.publishTransactionCreated(event);
         return transaction;
     }
     public void handleReservationResponse(AccountReservationEvent event) {
         log.info("Transaction Service - handleReservationResponse");
+        // get transaction from Spanner db based on event.transactionId
+
+        //update transaction saga state to SagaState.ACCOUNT_RESERVATION_SUCCESS.name()
+        // updateSagaState(ACCOUNT_RESERVATION_SUCCESS)
+
+        // updateSagaState(ACCOUNT_COMMIT_REQUESTED)
+
+        
+
     }
 
     public void handleCommitResponse(AccountCommitEvent event) {
