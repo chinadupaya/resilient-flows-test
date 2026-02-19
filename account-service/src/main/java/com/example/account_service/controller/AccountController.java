@@ -59,7 +59,6 @@ public class AccountController {
     public ResponseEntity<AccountReservationResponse> reserveAmount(
             @RequestBody AccountReservationRequest request) {
         log.info("Received reservation request for transaction: {}", request.transactionId());
-        log.info("source account Id: {}", request.sourceAccountId());
         
         try {
             AccountReservationResponse response = accountService.reserveAmount(request);

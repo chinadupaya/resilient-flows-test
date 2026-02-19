@@ -20,15 +20,15 @@ public class TransactionConsumer {
         this.transactionService = transactionService;
     }
 
-    @KafkaListener(topics = "transaction-events", groupId = "transaction-service-group")
-    public void consumeTransactionEvent(TransactionEvent event) {
-        log.info("Consuming transaction event from Kafka: {}", event.getTransactionId());
+    // @KafkaListener(topics = "transaction-events", groupId = "transaction-service-group")
+    // public void consumeTransactionEvent(TransactionEvent event) {
+    //     log.info("Consuming transaction event from Kafka: {}", event.getTransactionId());
 
-        CreateTransactionRequest request = new CreateTransactionRequest();
-        request.setSourceAccountId(event.getSourceAccountId());
-        request.setDestinationAccountId(event.getDestinationAccountId());
-        request.setAmount(event.getAmount());
+    //     CreateTransactionRequest request = new CreateTransactionRequest();
+    //     request.setSourceAccountId(event.getSourceAccountId());
+    //     request.setDestinationAccountId(event.getDestinationAccountId());
+    //     request.setAmount(event.getAmount());
 
-        transactionService.createTransaction(request);
-    }
+    //     transactionService.createTransaction(request);
+    // }
 }

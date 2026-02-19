@@ -1,0 +1,70 @@
+services:
+  # Transaction service infrastructure
+  spanner-emulator:
+    image: gcr.io/cloud-spanner-emulator/emulator
+    container_name: spanner-emulator
+    ports:
+      - "9010:9010"
+      - "9020:9020"
+    restart: unless-stopped
+
+  spanner-init:
+    image: curlimages/curl:latest
+    container_name: spanner-init
+    depends_on:
+      - spanner-emulator
+    restart: "no"
+    volumes:
+      - ../transaction-service/scripts:/scripts
+    entrypoint: ["/bin/sh", "/scripts/init-spanner.sh"]
+
+  # Account service infrastructure
+  postgres:
+    image: postgres:15.1
+    container_name: postgres-account
+    cap_add:
+      - SYS_NICE
+    restart: always
+    environment:
+      - POSTGRES_DB=account
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+    ports:
+      - '15203:5432'
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres", "-d", "account" ]
+      start_period: 2s
+      interval: 2s
+      timeout: 2s
+      retries: 55
+    volumes:
+      - postgres:/data
+
+  # Shared Kafka infrastructure
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+volumes:
+  postgres:
+    driver: local

@@ -9,3 +9,24 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
       ddl-auto: create-drop
+  kafka:
+    bootstrap-servers: localhost:9092
+
+    consumer:
+      group-id: account-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+
+      properties:
+        # Tell ErrorHandlingDeserializer to delegate to JsonDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+
+        # Your DTO class
+        spring.json.value.default.type: com.example.account_service.model.dto.TransactionEvent
+
+        # Trust your package (better than "*")
+        spring.json.trusted.packages: com.example.account_service.model.dto
+
+        # Since you're not using type headers
+        spring.json.use.type.headers: false

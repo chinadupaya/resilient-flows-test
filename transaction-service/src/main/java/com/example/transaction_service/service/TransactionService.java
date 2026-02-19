@@ -2,10 +2,14 @@ package com.example.transaction_service.service;
 
 import com.example.transaction_service.model.dto.AccountReservationRequest;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
+import com.example.transaction_service.model.dto.TransactionEvent;
 import com.example.transaction_service.model.SagaState;
 import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.TransactionStatus;
 import com.example.transaction_service.repository.TransactionRepository;
+import com.example.transaction_service.service.TransactionProducer;
+
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -23,11 +27,13 @@ public class TransactionService {
 
     private final TransactionRepository transactionRepository;
     private final RestClient accountsRestClient;
+    private final TransactionProducer transactionProducer;
 
     public TransactionService(TransactionRepository transactionRepository,
-                              RestClient accountsRestClient) {
+                RestClient accountsRestClient, TransactionProducer transactionProducer) {
         this.transactionRepository = transactionRepository;
         this.accountsRestClient = accountsRestClient;
+        this.transactionProducer = transactionProducer;
     }
 
     public Transaction createTransaction(CreateTransactionRequest request) {
@@ -105,22 +111,32 @@ public class TransactionService {
         }
     }
     public Transaction createTransactionInitial(CreateTransactionRequest request) {
-    // Create transaction with STARTED saga, PENDING status - don't process
-    Transaction transaction = new Transaction();
-    transaction.setSourceAccountId(request.getSourceAccountId().toString());
-    transaction.setDestinationAccountId(request.getDestinationAccountId().toString());
-    transaction.setAmount(request.getAmount());
-    transaction.setStatus(TransactionStatus.PENDING.name());
-    transaction.setSagaState(SagaState.STARTED.name());
-    transaction.setCreatedAt(Instant.now());
-    transaction.setUpdatedAt(Instant.now());
-    transaction.setVersion(0);
+        // Create transaction with STARTED saga, PENDING status - don't process
+        Transaction transaction = new Transaction();
+        transaction.setSourceAccountId(request.getSourceAccountId().toString());
+        transaction.setDestinationAccountId(request.getDestinationAccountId().toString());
+        transaction.setAmount(request.getAmount());
+        transaction.setStatus(TransactionStatus.PENDING.name());
+        transaction.setSagaState(SagaState.STARTED.name());
+        transaction.setCreatedAt(Instant.now());
+        transaction.setUpdatedAt(Instant.now());
+        transaction.setVersion(0);
 
-    transactionRepository.save(transaction);
-    log.info("Transaction {} created (async - awaiting Kafka processing)", transaction.getId());
+        transactionRepository.save(transaction);
+        // publish Event
+        log.info("Transaction {} created (async - awaiting Kafka processing)", transaction.getId());
+        
+        // Publish to Kafka instead of Spring events
+        TransactionEvent event = new TransactionEvent(
+            UUID.fromString(transaction.getId()),
+            request.getSourceAccountId(),
+            request.getDestinationAccountId(),
+            transaction.getAmount()
+        );
 
-    return transaction;
-}
+        transactionProducer.publishTransactionEvent(event);
+        return transaction;
+    }
     public Iterable<Transaction> getAllTransactions() {
         return transactionRepository.findAll();
     }
