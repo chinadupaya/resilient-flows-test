@@ -4,8 +4,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import com.example.account_service.events.AccountCommitEvent;
+import com.example.account_service.events.AccountReleaseEvent;
 import com.example.account_service.events.AccountReservationEvent;
 import com.example.account_service.model.dto.AccountCommitResponse;
+import com.example.account_service.model.dto.AccountReleaseResponse;
 import com.example.account_service.model.dto.AccountReservationResponse;
 
 import org.slf4j.Logger;
@@ -31,7 +34,16 @@ public class AccountProducer {
 
     public void publishCommitResponse(AccountCommitResponse response) {
         log.info("Publishing commit response for transaction {}", response.transactionId());
+        
+        AccountCommitEvent event = AccountCommitEvent.fromResponse(response);
         kafkaTemplate.send("account-events", 
-            response.transactionId().toString(), response);
+            response.transactionId().toString(), event);
+    }
+    public void publishReleaseResponse(AccountReleaseResponse response) {
+        log.info("Publishing commit response for transaction {}", response.transactionId());
+        
+        AccountReleaseEvent event = AccountReleaseEvent.fromResponse(response);
+        kafkaTemplate.send("account-events", 
+            response.transactionId().toString(), event);
     }
 }

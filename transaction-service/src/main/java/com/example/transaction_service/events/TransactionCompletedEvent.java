@@ -8,8 +8,7 @@ public record TransactionCompletedEvent(
         UUID transactionId,
         UUID sourceAccountId,
         UUID destinationAccountId,
-        BigDecimal amount,
-        Instant updatedAt
+        BigDecimal amount
 ) implements TransactionEvent {
 
     // Convenience constructor — NO eventType parameter
@@ -17,16 +16,14 @@ public record TransactionCompletedEvent(
             UUID transactionId,
             UUID sourceAccountId,
             UUID destinationAccountId,
-            BigDecimal amount,
-            Instant updatedAt
+            BigDecimal amount
     ) {
         this(
                 "TRANSACTION_COMPLETED",
                 transactionId,
                 sourceAccountId,
                 destinationAccountId,
-                amount,
-                updatedAt
+                amount
         );
     }
 }

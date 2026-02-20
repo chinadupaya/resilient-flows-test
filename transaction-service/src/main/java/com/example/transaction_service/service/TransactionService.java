@@ -4,8 +4,11 @@ import com.example.transaction_service.model.dto.AccountReservationRequest;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
 import com.example.transaction_service.events.AccountCommitEvent;
 import com.example.transaction_service.events.AccountReservationEvent;
+import com.example.transaction_service.events.TransactionCompletedEvent;
 import com.example.transaction_service.events.TransactionCreatedEvent;
+import com.example.transaction_service.events.TransactionEvent;
 import com.example.transaction_service.events.TransactionEventOLD;
+import com.example.transaction_service.events.TransactionFailedEvent;
 import com.example.transaction_service.model.SagaState;
 import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.TransactionStatus;
@@ -141,20 +144,88 @@ public class TransactionService {
         return transaction;
     }
     public void handleReservationResponse(AccountReservationEvent event) {
-        log.info("Transaction Service - handleReservationResponse");
-        // get transaction from Spanner db based on event.transactionId
+    log.info("Transaction Service - handleReservationResponse for transaction {}", event.transactionId());
+    
+    // Get transaction from Spanner DB
+    Transaction transaction = transactionRepository.findById(event.transactionId().toString())
+            .orElseThrow(() -> new RuntimeException("Transaction not found: " + event.transactionId()));
 
-        //update transaction saga state to SagaState.ACCOUNT_RESERVATION_SUCCESS.name()
-        // updateSagaState(ACCOUNT_RESERVATION_SUCCESS)
-
-        // updateSagaState(ACCOUNT_COMMIT_REQUESTED)
-
+    // Check if reservation was successful
+    if (!"SUCCESS".equals(event.status())) {
+        log.error("Reservation failed for transaction {}: {}", event.transactionId(), event.message());
         
-
+        // Mark as compensated and failed
+        transaction.setSagaState(SagaState.COMPENSATED.name());
+        transaction.setStatus(TransactionStatus.FAILED.name());
+        transaction.setFailureReason("Account reservation failed: " + event.message());
+        transaction.setUpdatedAt(Instant.now());
+        transaction.setVersion(transaction.getVersion() + 1);
+        transactionRepository.save(transaction);
+        
+        return;
     }
 
+    // Reservation succeeded - update saga state
+    updateSagaState(transaction, SagaState.ACCOUNT_RESERVATION_SUCCESS);
+    log.info("Account reservation succeeded for transaction {}", transaction.getId());
+
+    // Run compliance checks
+    boolean compliancePassed = runComplianceChecks(transaction);
+
+    if (compliancePassed) {
+        log.info("Compliance checks passed for transaction {}", transaction.getId());
+        
+        // Update saga state to commit requested
+        updateSagaState(transaction, SagaState.ACCOUNT_COMMIT_REQUESTED);
+
+        // Publish commit request event to Kafka
+        TransactionCompletedEvent commitEvent = new TransactionCompletedEvent(
+            UUID.fromString(transaction.getId()),
+            UUID.fromString(transaction.getSourceAccountId()),
+            UUID.fromString(transaction.getDestinationAccountId()),
+            transaction.getAmount()
+        );
+        
+        transactionProducer.publishTransactionCompleted(commitEvent);
+        
+    } else {
+        log.warn("Compliance checks failed for transaction {}", transaction.getId());
+        
+        // Update saga to compensated
+  
+        transaction.setSagaState(SagaState.COMPENSATED.name());
+        transaction.setStatus(TransactionStatus.FAILED.name());
+        transaction.setFailureReason("Compliance checks failed");
+        transaction.setUpdatedAt(Instant.now());
+        transaction.setVersion(transaction.getVersion() + 1);
+        transactionRepository.save(transaction);
+
+        // Publish release request event to release reserved funds
+        TransactionFailedEvent releaseEvent = new TransactionFailedEvent(
+            UUID.fromString(transaction.getId()),
+            UUID.fromString(transaction.getSourceAccountId()),
+            transaction.getAmount(),
+            transaction.getFailureReason(),
+            transaction.getUpdatedAt()
+        );
+        
+        transactionProducer.publishTransactionFailed(releaseEvent);
+    }
+}
+
     public void handleCommitResponse(AccountCommitEvent event) {
-        log.info("Transaction Service - handleReservationResponse");
+        log.info("Transaction Service - handleCommitResponse");
+         // Get transaction from Spanner DB
+        Transaction transaction = transactionRepository.findById(event.transactionId().toString())
+            .orElseThrow(() -> new RuntimeException("Transaction not found: " + event.transactionId()));
+        
+        transaction.setSagaState(SagaState.COMPLETED.name());
+            transaction.setStatus(TransactionStatus.COMPLETED.name());
+            transaction.setUpdatedAt(Instant.now());
+            transaction.setVersion(transaction.getVersion() + 1);
+            transactionRepository.save(transaction);
+            log.info("Transaction {} COMPLETED", transaction.getId());
+
     }
 
     public Iterable<Transaction> getAllTransactions() {

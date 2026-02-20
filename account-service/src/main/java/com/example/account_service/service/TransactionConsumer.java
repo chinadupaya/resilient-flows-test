@@ -27,16 +27,16 @@ public class TransactionConsumer {
             case TransactionCreatedEvent created -> {
                 // handle created
                 accountService.processReservationAsync(created);
+            }
+            case TransactionCompletedEvent completed -> {
+                // handle completed
+                accountService.processCommitAsync(completed);
+            }
+            case TransactionFailedEvent failed -> {
+                // handle failed
+                accountService.processReleaseAsync(failed);
+            }
         }
-        case TransactionCompletedEvent completed -> {
-            // handle completed
-            accountService.processCommitAsync(completed);
-        }
-        case TransactionFailedEvent failed -> {
-            // handle failed
-            accountService.processReleaseAsync(failed);
-        }
-    }
     }
 
     // @KafkaListener(topics = "account-commit-requests", groupId = "account-service-group")
