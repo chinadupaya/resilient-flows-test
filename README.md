@@ -22,3 +22,23 @@ We will be using the same API call `POST /transactions` but create an additional
 
 ## Failure Scenarios
 - One failure each for async and sync processes
+
+# To Run locally:
+
+## Requirements
+- Docker
+- Java
+
+## Running
+1. Go to `/infrastructure` and run `docker compose up -d`
+2. To put in dummy data and initialize the tables for the account-service, make sure the postgres container is running, go to `/accounts` and run in the terminal:
+```
+docker exec -i postgres-account \
+  psql -U postgres -d account < src/main/resources/db/init.sql
+```
+3. Initialization of tables for transaction-service is done during docker initialization.
+
+4. Run account service
+```
+SPRING_PROFILES_ACTIVE=local mvn spring-boot:run
+```
