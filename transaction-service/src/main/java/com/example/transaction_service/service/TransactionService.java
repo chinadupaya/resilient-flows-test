@@ -6,14 +6,12 @@ import com.example.transaction_service.events.AccountCommitEvent;
 import com.example.transaction_service.events.AccountReservationEvent;
 import com.example.transaction_service.events.TransactionCompletedEvent;
 import com.example.transaction_service.events.TransactionCreatedEvent;
-import com.example.transaction_service.events.TransactionEvent;
-import com.example.transaction_service.events.TransactionEventOLD;
+
 import com.example.transaction_service.events.TransactionFailedEvent;
 import com.example.transaction_service.model.SagaState;
 import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.TransactionStatus;
 import com.example.transaction_service.repository.TransactionRepository;
-import com.example.transaction_service.service.TransactionProducer;
 
 
 import org.slf4j.Logger;
@@ -21,6 +19,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.util.concurrent.atomic.AtomicInteger;
+
+
 
 import java.time.Instant;
 import java.util.UUID;
@@ -35,11 +39,28 @@ public class TransactionService {
     private final RestClient accountsRestClient;
     private final TransactionProducer transactionProducer;
 
+    private final Counter transactionCompletedCounter;
+    private final Counter transactionFailedCounter;
+    private final Counter transactionStartedCounter;
+
+    private final AtomicInteger activeTransactions = new AtomicInteger();
+
     public TransactionService(TransactionRepository transactionRepository,
-                RestClient accountsRestClient, TransactionProducer transactionProducer) {
+                RestClient accountsRestClient, TransactionProducer transactionProducer,
+                MeterRegistry meterRegistry) {
         this.transactionRepository = transactionRepository;
         this.accountsRestClient = accountsRestClient;
         this.transactionProducer = transactionProducer;
+
+        this.transactionStartedCounter =
+            meterRegistry.counter("transactions.started");
+
+        this.transactionCompletedCounter =
+                meterRegistry.counter("transactions.completed");
+
+        this.transactionFailedCounter =
+                meterRegistry.counter("transactions.failed");
+        meterRegistry.gauge("transactions.active", activeTransactions);
     }
 
     public Transaction createTransaction(CreateTransactionRequest request) {
@@ -56,6 +77,8 @@ public class TransactionService {
 
         transactionRepository.save(transaction);
         log.info("Transaction {} created with saga STARTED", transaction.getId());
+        transactionStartedCounter.increment();
+        activeTransactions.incrementAndGet();
 
         updateSagaState(transaction, SagaState.ACCOUNT_RESERVATION_REQUESTED);
 
@@ -108,11 +131,13 @@ public class TransactionService {
             transaction.setVersion(transaction.getVersion() + 1);
             transactionRepository.save(transaction);
             log.info("Transaction {} COMPLETED", transaction.getId());
-
+            transactionCompletedCounter.increment();
+            activeTransactions.decrementAndGet();
             return transaction;
 
         } catch (Exception e) {
             log.error("Error processing transaction {}: {}", transaction.getId(), e.getMessage());
+            activeTransactions.decrementAndGet();
             return compensate(transaction, reservationRequest, e.getMessage());
         }
     }
@@ -131,6 +156,8 @@ public class TransactionService {
         transactionRepository.save(transaction);
         // publish Event
         log.info("Transaction {} created (async - awaiting Kafka processing)", transaction.getId());
+        transactionStartedCounter.increment();
+        activeTransactions.incrementAndGet();
         
         // Publish to Kafka instead of Spring events
         TransactionCreatedEvent event = new TransactionCreatedEvent(
@@ -161,6 +188,9 @@ public class TransactionService {
         transaction.setUpdatedAt(Instant.now());
         transaction.setVersion(transaction.getVersion() + 1);
         transactionRepository.save(transaction);
+
+        transactionFailedCounter.increment();
+        activeTransactions.decrementAndGet();
         
         return;
     }
@@ -187,6 +217,8 @@ public class TransactionService {
         );
         
         transactionProducer.publishTransactionCompleted(commitEvent);
+        transactionCompletedCounter.increment();
+        activeTransactions.decrementAndGet();
         
     } else {
         log.warn("Compliance checks failed for transaction {}", transaction.getId());
@@ -210,6 +242,8 @@ public class TransactionService {
         );
         
         transactionProducer.publishTransactionFailed(releaseEvent);
+        transactionFailedCounter.increment();
+        activeTransactions.decrementAndGet();
     }
 }
 
@@ -232,7 +266,7 @@ public class TransactionService {
         return transactionRepository.findAll();
     }
     private boolean runComplianceChecks(Transaction transaction) {
-        return true;
+        return Math.random() > 0.3;
     }
 
     private void release(Transaction transaction, AccountReservationRequest reservationRequest) {
@@ -260,6 +294,8 @@ public class TransactionService {
         transaction.setVersion(transaction.getVersion() + 1);
         transactionRepository.save(transaction);
         log.info("Transaction {} FAILED: {}", transaction.getId(), reason);
+        transactionFailedCounter.increment();
+        activeTransactions.decrementAndGet();
         return transaction;
     }
 
