@@ -26,7 +26,7 @@ We will be using the same API call `POST /transactions` but create an additional
 # To Run locally:
 
 ## Requirements
-- Docker
+- Docker, Docker compose
 - Java
 
 ## Running
@@ -38,7 +38,7 @@ docker exec -i postgres-account \
 ```
 3. Initialization of tables for transaction-service is done during docker initialization.
 
-4. Run account service
+4. Run account service and transaction service from their directories.
 ```
-SPRING_PROFILES_ACTIVE=local mvn spring-boot:run
+mvn spring-boot:run
 ```

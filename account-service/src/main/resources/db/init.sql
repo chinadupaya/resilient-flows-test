@@ -10,11 +10,13 @@ CREATE TABLE IF NOT EXISTS accounts (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- start from scratch
+DELETE FROM accounts;
 -- Dummy data
 INSERT INTO accounts (account_holder_name, balance, reserved_amount)
 VALUES
-    ('Alice Johnson', 1500.00, 200.00),
+    ('Alice Johnson', 1500.00, 0.00),
     ('Bob Smith', 3200.50, 0.00),
-    ('Carol White', 750.75, 100.00),
-    ('David Brown', 10000.00, 500.00),
+    ('Carol White', 750.75, 0.00),
+    ('David Brown', 10000.00, 0.00),
     ('Eve Davis', 250.00, 0.00);

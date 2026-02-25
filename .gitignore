@@ -1,10 +1,12 @@
 .vscode
+.venv
 
 HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+experiments/results
 
 ### STS ###
 .apt_generated

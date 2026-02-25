@@ -1,7 +1,6 @@
 package com.example.account_service.events;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.UUID;
 
 public record TransactionFailedEvent(
@@ -9,23 +8,20 @@ public record TransactionFailedEvent(
         UUID transactionId,
         UUID accountId,
         BigDecimal amount,
-        String reason,
-        Instant failedAt
+        String reason
 ) implements TransactionEvent{
     public TransactionFailedEvent(
         UUID transactionId,
         UUID accountId,
         BigDecimal amount,
-        String reason,
-        Instant failedAt
+        String reason
     ) {
         this(
             "TRANSACTION_FAILED", 
             transactionId, 
             accountId,
             amount,
-            reason, 
-            failedAt
+            reason
         );
     }
 

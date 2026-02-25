@@ -8,6 +8,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+import org.springframework.data.annotation.Version;
+
 @Table(name = "transactions")
 public class Transaction {
 
@@ -40,6 +42,7 @@ public class Transaction {
     private Instant updatedAt;
 
     @Column(name = "version")
+    @Version
     private long version;
 
     public Transaction() {
