@@ -1,0 +1,287 @@
+import requests
+import random
+import time
+import subprocess
+import threading
+
+PROMETHEUS_URL = "http://localhost:9095"
+ACCOUNT_SERVICE_URL = "http://localhost:8080/api/v1/accounts"
+TRANSACTION_SERVICE_URL = "http://localhost:9090/api/v1/transactions"
+
+SYNC_MODE = "async"
+
+RAMP_STAGES = [
+    (5, 20),
+    (10, 20),
+    (20, 20),
+]
+
+FAILURE_STAGE_INDEX = 2
+FAILURE_DURATION = 5
+stop_event = threading.Event()
+
+FAILURE_SCENARIOS = [
+    {
+        "name": "Account DB failure",
+        "failure_cmd": ["docker", "stop", "postgres-account"],
+        "recovery_cmd": ["docker", "start", "postgres-account"],
+    },
+    {
+        "name": "Transaction service failure",
+        "failure_cmd": ["docker", "stop", "spanner-transaction"],
+        "recovery_cmd": ["docker", "start", "spanner-transaction"],
+    },
+    {
+        "name": "Kafka failure",
+        "failure_cmd": ["docker", "stop", "kafka"],
+        "recovery_cmd": ["docker", "start", "kafka"],
+    },
+    {
+        "name": "Cascading: DB + Kafka",
+        "failure_cmd": [["docker", "stop", "postgres-account"], ["docker", "stop", "kafka"]],
+        "recovery_cmd": [["docker", "start", "postgres-account"], ["docker", "start", "kafka"]],
+        "multi": True,
+    },
+]
+TEST_SCENARIO = FAILURE_SCENARIOS[2]
+
+def query_prometheus(metric: str) -> float:
+    """Instant query - returns current value."""
+    r = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params={"query": metric})
+    r.raise_for_status()
+    result = r.json()["data"]["result"]
+    return float(result[0]["value"][1]) if result else 0.0
+
+def query_prometheus_range(metric: str, start: float, end: float, step: str = "5s") -> list:
+    """Range query - returns time series between start and end."""
+    r = requests.get(f"{PROMETHEUS_URL}/api/v1/query_range", params={
+        "query": metric,
+        "start": start,
+        "end": end,
+        "step": step,
+    })
+    r.raise_for_status()
+    result = r.json()["data"]["result"]
+    return result[0]["values"] if result else []  # [[timestamp, value], ...]
+def snapshot_metrics() -> dict:
+    return {
+        "active":    query_prometheus("transactions_active"),
+        "started":   query_prometheus("transactions_started_total"),
+        "completed": query_prometheus("transactions_completed_total"),
+        "failed":    query_prometheus("transactions_failed_total"),
+        "timestamp": time.time(),
+    }
+
+def diff_snapshots(before: dict, after: dict) -> dict:
+    return {
+        "started":   after["started"]   - before["started"],
+        "completed": after["completed"] - before["completed"],
+        "failed":    after["failed"]    - before["failed"],
+        "max_active": after["active"],   # peak captured separately
+        "duration_s": after["timestamp"] - before["timestamp"],
+    }
+
+def capture_failure_window(start_time: float, end_time: float) -> dict:
+    """Query time series for the failure window for each metric."""
+    metrics = ["transactions_active", "transactions_started_total",
+               "transactions_completed_total", "transactions_failed_total"]
+    
+    return {
+        m: query_prometheus_range(m, start_time, end_time, step="2s")
+        for m in metrics
+    }
+
+def inject_failure_after_delay(delay, scenario, stage_results):
+    def _inject():
+        time.sleep(delay)
+        failure_start = time.time()
+        print(f"\n[CHAOS] Injecting: {scenario['name']}")
+        subprocess.run(scenario["failure_cmd"])
+
+        time.sleep(FAILURE_DURATION)
+
+        print(f"\n[CHAOS] Recovering: {scenario['name']}")
+        subprocess.run(scenario["recovery_cmd"])
+        failure_end = time.time()
+
+        # Capture what happened during the failure window
+        stage_results["failure_window"] = capture_failure_window(failure_start, failure_end)
+
+    threading.Thread(target=_inject, daemon=True).start()
+
+def query_actual_tps(window: str = "30s") -> dict:
+    return {
+        "completed_tps": query_prometheus(f"rate(transactions_completed_total[{window}])"),
+        "failed_tps":    query_prometheus(f"rate(transactions_failed_total[{window}])"),
+        "started_tps":   query_prometheus(f"rate(transactions_started_total[{window}])"),
+    }
+
+# Commands
+def run_sql_init():
+    print("\nCleaning postgres-db service...")
+    with open("init.sql", "r") as sql_file:
+        result = subprocess.run(
+            ["docker", "exec", "-i", "postgres-account", "psql", "-U", "postgres", "-d", "account"],
+            stdin=sql_file,
+            capture_output=True,
+            text=True
+        )
+    
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {result.stderr}")
+    
+    return result.stdout
+def run_spanner_init():
+    print("\nCleaning Spanner transactions table...")
+    HOST = "http://localhost:9020"  # exposed port from spanner-emulator container
+    PROJECT = "test-project"
+    INSTANCE = "test-instance"
+    DATABASE = "test-database"
+
+    base = f"{HOST}/v1/projects/{PROJECT}/instances/{INSTANCE}/databases/{DATABASE}"
+
+    # Start a session
+    session = requests.post(f"{base}/sessions").json()
+    session_name = session["name"]
+
+    # Delete all rows 
+    r = requests.post(f"{HOST}/v1/{session_name}:commit", json={
+        "singleUseTransaction": {"readWrite": {}},
+        "mutations": [
+            {
+                "delete": {
+                    "table": "transactions",
+                    "keySet": {"all": True}  # deletes every row
+                }
+            }
+        ]
+    })
+
+    if r.status_code != 200:
+        raise RuntimeError(f"Spanner cleanup failed: {r.text}")
+
+    # Clean up session
+    requests.delete(f"{HOST}/v1/{session_name}")
+
+# Account/Transaction Info
+def get_accounts_full():
+    r = requests.get(ACCOUNT_SERVICE_URL)
+    r.raise_for_status()
+    return r.json()
+
+def create_transaction(source, destination, amount):
+    payload = {
+        "sourceAccountId": source,
+        "destinationAccountId": destination,
+        "amount": amount,
+        "type": SYNC_MODE
+    }
+    requests.post(TRANSACTION_SERVICE_URL, json=payload)
+
+def get_transactions():
+    r = requests.get(TRANSACTION_SERVICE_URL)
+    r.raise_for_status()
+    return r.json()
+
+def calculate_total_money(accounts):
+    # return sum(a["balance"] + a["reservedAmount"] for a in accounts)
+    return sum(a["balance"] for a in accounts)
+
+def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: dict):
+    diff = diff_snapshots(before_snapshot, after_snapshot)
+    actual_tps = query_actual_tps()
+
+    final_accounts = get_accounts_full()
+    transactions = get_transactions()
+    initial_total = calculate_total_money(initial_accounts)
+    final_total = calculate_total_money(final_accounts)
+    money_drift = final_total - initial_total
+    money_drift_rate = (money_drift / initial_total) * 100
+    stuck = [a for a in final_accounts if a["reservedAmount"] > 0]
+
+    if stuck:
+        print("\nStuck reservation details:")
+        for a in stuck:
+            print(f"  Account {a['id']}: reserved={a['reservedAmount']}, balance={a['balance']}")
+
+    print("\n==== PROMETHEUS METRICS ====")
+    print(f"Transactions started:   {diff['started']:.0f}")
+    print(f"Transactions completed: {diff['completed']:.0f}")
+    print(f"Transactions failed:    {diff['failed']:.0f}")
+    print(f"Current active:         {before_snapshot['active']-after_snapshot['active']}")
+    print(f"Completed TPS (now):    {actual_tps['completed_tps']:.2f}")
+    print(f"Failed TPS (now):       {actual_tps['failed_tps']:.2f}")
+
+    print("\n==== CONSISTENCY REPORT ====")
+    print(f"Money drift: {money_drift}")
+    print(f"Money drift percent: {money_drift_rate:.2f}")
+    print(f"Stuck reservations: {len(stuck)}")
+    print("✅ Money conserved" if abs(money_drift) < 0.0001 else "❌ MONEY INCONSISTENCY DETECTED")
+    print("✅ No stuck reservations" if not stuck else "❌ Stuck reservations detected")
+    print("============================\n")
+
+    return {
+        "money_drift": money_drift,
+        "money_drift_rate": str(money_drift_rate) + "%",
+        "stuck_reservations": len(stuck),
+        "transactions": diff,
+        "loss_rate_pct": diff['failed'] / max(diff['started'], 1) * 100,
+    }
+
+def run_stage(account_ids, tps, duration, stage_index, scenario=None, stage_results=None):
+    print(f"\nStage {stage_index}: {tps} TPS for {duration}s")
+    delay = 1.0 / tps
+    end_time = time.time() + duration
+    if scenario and stage_results is not None:
+        inject_failure_after_delay(duration // 2, scenario, stage_results)  # fail halfway through
+
+    while time.time() < end_time and not stop_event.is_set():
+        start = time.time()
+
+        source, destination = random.sample(account_ids, 2)
+        amount = random.randint(10, 200)
+
+        try:
+            create_transaction(source, destination, amount)
+        except Exception:
+            pass
+
+        elapsed = time.time() - start
+        sleep_time = delay - elapsed
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+
+def run_experiment():
+    print(f"\nStarting consistency-focused experiment of type {SYNC_MODE}")
+    run_sql_init()
+    run_spanner_init()
+    time.sleep(3)
+    initial_accounts = get_accounts_full()
+    account_ids = [a["id"] for a in initial_accounts]
+
+    before = snapshot_metrics()
+    stage_results = {}
+
+    # for index, (tps, duration) in enumerate(RAMP_STAGES):
+    #     run_stage(account_ids, tps, duration, index,
+    #               scenario=FAILURE_SCENARIOS[0] if index == FAILURE_STAGE_INDEX else None,
+    #               stage_results=stage_results)
+    run_stage(account_ids, 5, 30, 1,
+                scenario=TEST_SCENARIO,
+                stage_results=stage_results)
+
+    time.sleep(10)
+    after = snapshot_metrics()
+
+    # Print failure window timeline if available
+    if "failure_window" in stage_results:
+            print("\n==== FAILURE WINDOW TIMELINE ====")
+            for metric, series in stage_results["failure_window"].items():
+                print(f"\n{metric}:")
+                for ts, val in series:
+                    print(f"  {time.strftime('%H:%M:%S', time.localtime(float(ts)))} → {float(val):.1f}")
+
+    check_consistency(initial_accounts, before, after)
+
+if __name__ == "__main__":
+    run_experiment()

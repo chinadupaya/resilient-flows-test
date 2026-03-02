@@ -11,6 +11,13 @@ import threading
 ACCOUNT_SERVICE_URL = "http://localhost:8080/api/v1/accounts"
 TRANSACTION_SERVICE_URL = "http://localhost:9090/api/v1/transactions"
 
+# config = {
+#     "sync_mode": "sync", # or async
+#     "failure_stage": 2, 
+#     "failure_duration": 5,
+#     "failure_service": "spanner-transaction" #postgres-account, kafka, spanner-transaction
+# }
+
 SYNC_MODE = "async"
 
 RAMP_STAGES = [
@@ -24,6 +31,8 @@ FAILURE_DURATION = 5
 
 FAILURE_COMMAND = ["docker", "stop", "postgres-account"]
 RECOVERY_COMMAND = ["docker", "start", "postgres-account"]
+# FAILURE_COMMAND = ["docker", "stop", "spanner-transaction"]
+# RECOVERY_COMMAND = ["docker", "start", "spanner-transaction"]
 
 stop_event = threading.Event()
 
@@ -80,7 +89,7 @@ def run_stage(account_ids, tps, duration, stage_index):
 
 
 # ---------------------------
-# FAILURE CONTROL
+# COMMANDS
 # ---------------------------
 
 def inject_failure():
@@ -91,6 +100,21 @@ def inject_failure():
 def recover_failure():
     print("\nRecovering service...")
     subprocess.run(RECOVERY_COMMAND)
+
+def run_sql_init():
+    print("\nCleaning postgres-db service...")
+    with open("init.sql", "r") as sql_file:
+        result = subprocess.run(
+            ["docker", "exec", "-i", "postgres-account", "psql", "-U", "postgres", "-d", "account"],
+            stdin=sql_file,
+            capture_output=True,
+            text=True
+        )
+    
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {result.stderr}")
+    
+    return result.stdout
 
 
 # ---------------------------
@@ -148,18 +172,20 @@ def check_consistency(initial_accounts):
 # ---------------------------
 
 def run_experiment():
-    print("\nStarting consistency-focused experiment")
-
+    print(f"\nStarting consistency-focused experiment of type {SYNC_MODE}")
+    run_sql_init()
+    time.sleep(5)
     initial_accounts = get_accounts_full()
     account_ids = [a["id"] for a in initial_accounts]
 
     for index, (tps, duration) in enumerate(RAMP_STAGES):
-        run_stage(account_ids, tps, duration, index)
 
         if index == FAILURE_STAGE_INDEX:
             inject_failure()
             time.sleep(FAILURE_DURATION)
             recover_failure()
+
+        run_stage(account_ids, tps, duration, index)
 
     # allow system to stabilize
     print("\nWaiting for stabilization...")

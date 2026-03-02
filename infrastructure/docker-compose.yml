@@ -2,7 +2,7 @@ services:
   # Transaction service infrastructure
   spanner-emulator:
     image: gcr.io/cloud-spanner-emulator/emulator
-    container_name: spanner-emulator
+    container_name: spanner-transaction
     ports:
       - "9010:9010"
       - "9020:9020"
