@@ -19,7 +19,6 @@ import com.example.account_service.events.TransactionCreatedEvent;
 import com.example.account_service.events.TransactionFailedEvent;
 import com.example.account_service.exception.AccountNotFoundException;
 import com.example.account_service.exception.InsufficientBalanceException;
-import com.example.account_service.service.AccountProducer;
 
 @Service
 public class AccountService {
@@ -35,7 +34,7 @@ public class AccountService {
     }
 
     // ============================================================================
-    // ACCOUNT MANAGEMENT (CRUD)
+    // ACCOUNT MANAGEMENT (GENERAL)
     // ============================================================================
 
     public Account createAccount(String accountHolderName) {
@@ -53,6 +52,19 @@ public class AccountService {
 
     public Optional<Account> getAccountById(UUID id) {
         return accountRepository.findById(id);
+    }
+
+    @Transactional
+    public void reconcileReservations() {
+        log.info("Starting reservation reconciliation");
+        List<Account> accounts = accountRepository.findAll();
+
+        for (Account acc: accounts) {
+            if (acc.getReservedAmount().compareTo(BigDecimal.ZERO) > 0) {
+                acc.setReservedAmount(BigDecimal.ZERO);
+                accountRepository.save(acc);
+            }
+        }
     }
 
     // ============================================================================

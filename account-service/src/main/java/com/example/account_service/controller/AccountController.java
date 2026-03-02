@@ -22,6 +22,9 @@ import com.example.account_service.model.dto.AccountReservationRequest;
 import com.example.account_service.model.dto.AccountCommitRequest;
 import com.example.account_service.exception.InsufficientBalanceException;
 import com.example.account_service.exception.AccountNotFoundException;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+
 
 @Slf4j
 @RestController
@@ -123,6 +126,13 @@ public class AccountController {
                 .body(AccountReleaseResponse.failure(request.transactionId(), request.accountId(), request.amount(), e.getMessage()));
         }
     }
+
+    @PostMapping("/reconcile")
+    public void reconcileReservations() {
+        accountService.reconcileReservations();
+        return;
+    }
+    
 
     // Simple request DTO as a record — keeps request data off the Account model
     public record CreateAccountRequest(String accountHolderName) {}
