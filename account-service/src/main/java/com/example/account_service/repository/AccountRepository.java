@@ -1,6 +1,7 @@
 package com.example.account_service.repository;
  
 import java.util.UUID;
+import java.math.BigDecimal;
 import java.util.Optional;
 
 
@@ -22,4 +23,13 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT a FROM Account a WHERE a.id = :id")
     Optional<Account> findByIdWithLock(@Param("id") UUID id);
+
+    // money drift query
+    @Query("SELECT COALESCE(SUM(a.balance + a.reservedAmount),0) FROM Account a")
+    BigDecimal totalSystemMoney();
+    //reserved funds query
+    @Query("SELECT COALESCE(SUM(a.reservedAmount),0) FROM Account a")
+    BigDecimal totalReserved();
+
+
 }

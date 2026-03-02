@@ -1,24 +1,36 @@
 package com.example.account_service.service;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
 
-import com.example.account_service.model.Account;
-import com.example.account_service.model.dto.*;
-import com.example.account_service.repository.AccountRepository;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+
 import com.example.account_service.events.TransactionCompletedEvent;
 import com.example.account_service.events.TransactionCreatedEvent;
-
 import com.example.account_service.events.TransactionFailedEvent;
 import com.example.account_service.exception.AccountNotFoundException;
 import com.example.account_service.exception.InsufficientBalanceException;
+import com.example.account_service.model.Account;
+import com.example.account_service.model.dto.AccountCommitRequest;
+import com.example.account_service.model.dto.AccountCommitResponse;
+import com.example.account_service.model.dto.AccountReleaseRequest;
+import com.example.account_service.model.dto.AccountReleaseResponse;
+import com.example.account_service.model.dto.AccountReservationRequest;
+import com.example.account_service.model.dto.AccountReservationResponse;
+import com.example.account_service.model.dto.TransactionReservation;
+import com.example.account_service.repository.AccountRepository;
 
 @Service
 public class AccountService {
@@ -27,10 +39,23 @@ public class AccountService {
 
     private final AccountRepository accountRepository;
     private final AccountProducer accountProducer;
+    private final RestClient transactionsRestClient;
 
-    public AccountService(AccountRepository accountRepository, AccountProducer accountProducer) {
+    public AccountService(AccountRepository accountRepository, 
+        AccountProducer accountProducer, RestClient transactionsRestClient,
+    MeterRegistry meterRegistry) {
         this.accountRepository = accountRepository;
         this.accountProducer = accountProducer;
+        this.transactionsRestClient = transactionsRestClient;
+        
+        Gauge.builder("accounts.money.total",
+            accountRepository,
+            repo -> repo.totalSystemMoney().doubleValue())
+            .register(meterRegistry);
+        Gauge.builder("accounts.reserved.total",
+            accountRepository,
+            repo -> repo.totalReserved().doubleValue())
+        .register(meterRegistry);
     }
 
     // ============================================================================
@@ -58,13 +83,43 @@ public class AccountService {
     public void reconcileReservations() {
         log.info("Starting reservation reconciliation");
         List<Account> accounts = accountRepository.findAll();
+        Iterable<TransactionReservation> pending = transactionsRestClient.get()
+        .uri("/api/v1/transactions/pending")
+        .retrieve()
+        .body(new ParameterizedTypeReference<Iterable<TransactionReservation>>() {});
+
+        Map<UUID, BigDecimal> expectedReservations = new HashMap<>();
+
+        for (TransactionReservation tx : pending) {
+            expectedReservations.merge(
+                tx.getSourceAccountId(),
+                tx.getAmount(),
+                BigDecimal::add
+            );
+        }
 
         for (Account acc: accounts) {
-            if (acc.getReservedAmount().compareTo(BigDecimal.ZERO) > 0) {
-                acc.setReservedAmount(BigDecimal.ZERO);
+            // if (acc.getReservedAmount().compareTo(BigDecimal.ZERO) > 0) {
+            //     acc.setReservedAmount(BigDecimal.ZERO);
+            //     accountRepository.save(acc);
+            // }
+            BigDecimal expected =
+            expectedReservations.getOrDefault(acc.getId(), BigDecimal.ZERO);
+
+            if (acc.getReservedAmount().compareTo(expected) != 0) {
+
+                log.warn(
+                    "Fixing reservation drift for account {}: {} → {}",
+                    acc.getId(),
+                    acc.getReservedAmount(),
+                    expected
+                );
+
+                acc.setReservedAmount(expected);
                 accountRepository.save(acc);
             }
         }
+        log.info("Reconciliation completed");
     }
 
     // ============================================================================

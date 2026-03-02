@@ -2,6 +2,7 @@ package com.example.transaction_service.service;
 
 import com.example.transaction_service.model.dto.AccountReservationRequest;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
+import com.example.transaction_service.model.dto.TransactionReservation;
 import com.example.transaction_service.events.AccountCommitEvent;
 import com.example.transaction_service.events.AccountReservationEvent;
 import com.example.transaction_service.events.TransactionCompletedEvent;
@@ -13,7 +14,6 @@ import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.TransactionStatus;
 import com.example.transaction_service.repository.TransactionRepository;
 
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -22,7 +22,7 @@ import org.springframework.web.client.RestClient;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.util.concurrent.atomic.AtomicInteger;
+import io.micrometer.core.instrument.Gauge;
 
 
 
@@ -43,8 +43,6 @@ public class TransactionService {
     private final Counter transactionFailedCounter;
     private final Counter transactionStartedCounter;
 
-    private final AtomicInteger activeTransactions = new AtomicInteger();
-
     public TransactionService(TransactionRepository transactionRepository,
                 RestClient accountsRestClient, TransactionProducer transactionProducer,
                 MeterRegistry meterRegistry) {
@@ -60,7 +58,12 @@ public class TransactionService {
 
         this.transactionFailedCounter =
                 meterRegistry.counter("transactions.failed");
-        meterRegistry.gauge("transactions.active", activeTransactions);
+        Gauge.builder("transaction.reservations.active",
+            () -> transactionRepository.countActiveReservations())
+            .register(meterRegistry);
+        Gauge.builder("transactions.stuck",
+        () -> transactionRepository.countStuckTransactions())
+        .register(meterRegistry);
     }
 
     public Transaction createTransaction(CreateTransactionRequest request) {
@@ -77,7 +80,6 @@ public class TransactionService {
         transactionRepository.save(transaction);
         log.info("Transaction {} created with saga STARTED", transaction.getId());
         transactionStartedCounter.increment();
-        activeTransactions.incrementAndGet();
 
         if (!updateSagaState(transaction,
             SagaState.STARTED,
@@ -146,7 +148,6 @@ public class TransactionService {
             // transaction.setVersion(transaction.getVersion() + 1);
             log.info("Transaction {} COMPLETED", transaction.getId());
             transactionCompletedCounter.increment();
-            activeTransactions.decrementAndGet();
             return transaction;
 
         } catch (Exception e) {
@@ -170,7 +171,6 @@ public class TransactionService {
         transactionRepository.save(transaction);
 
         transactionStartedCounter.increment();
-        activeTransactions.incrementAndGet();
 
         if (!updateSagaState(transaction,
                 SagaState.STARTED,
@@ -261,12 +261,23 @@ public class TransactionService {
         transactionRepository.save(transaction);
 
         transactionCompletedCounter.increment();
-        activeTransactions.decrementAndGet();
     }
 
     public Iterable<Transaction> getAllTransactions() {
         return transactionRepository.findAll();
     }
+    
+    public Iterable<TransactionReservation> getPendingTransactions() {
+        return transactionRepository.findTransactionsWithActiveReservations()
+            .stream()
+            .map(t -> new TransactionReservation(
+                    UUID.fromString(t.getId()),
+                    UUID.fromString(t.getSourceAccountId()),
+                    t.getAmount()
+            ))
+            .toList();
+    }
+    // PRIVATE FUNCTIONS
     private boolean runComplianceChecks(Transaction transaction) {
         // return false;
         return Math.random() > 0.3;
@@ -304,7 +315,6 @@ public class TransactionService {
             transactionRepository.save(tx);
 
             transactionFailedCounter.increment();
-            activeTransactions.decrementAndGet();
 
             log.info("Transaction {} compensated successfully", tx.getId());
 
@@ -334,7 +344,6 @@ public class TransactionService {
         transactionRepository.save(transaction);
         log.info("Transaction {} FAILED: {}", transaction.getId(), reason);
         transactionFailedCounter.increment();
-        activeTransactions.decrementAndGet();
         return transaction;
     }
 

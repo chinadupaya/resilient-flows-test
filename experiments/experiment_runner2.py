@@ -8,13 +8,13 @@ PROMETHEUS_URL = "http://localhost:9095"
 ACCOUNT_SERVICE_URL = "http://localhost:8080/api/v1/accounts"
 TRANSACTION_SERVICE_URL = "http://localhost:9090/api/v1/transactions"
 
-SYNC_MODE = "async"
+SYNC_MODE = "sync"
 
-RAMP_STAGES = [
-    (5, 20),
-    (10, 20),
-    (20, 20),
-]
+# RAMP_STAGES = [
+#     (5, 20),
+#     (10, 20),
+#     (20, 20),
+# ]
 
 FAILURE_STAGE_INDEX = 2
 FAILURE_DURATION = 5
@@ -43,7 +43,7 @@ FAILURE_SCENARIOS = [
         "multi": True,
     },
 ]
-TEST_SCENARIO = FAILURE_SCENARIOS[2]
+TEST_SCENARIO = FAILURE_SCENARIOS[0]
 
 def query_prometheus(metric: str) -> float:
     """Instant query - returns current value."""
@@ -65,29 +65,34 @@ def query_prometheus_range(metric: str, start: float, end: float, step: str = "5
     return result[0]["values"] if result else []  # [[timestamp, value], ...]
 def snapshot_metrics() -> dict:
     return {
-        "active":    query_prometheus("transactions_active"),
         "started":   query_prometheus("transactions_started_total"),
         "completed": query_prometheus("transactions_completed_total"),
         "failed":    query_prometheus("transactions_failed_total"),
+        "active":    query_prometheus("transactions_reservations_active"),
+        "stuck":    query_prometheus("transactions_stuck"),
+        "money_total":    query_prometheus("accounts_reserved_total"),
+        "reserved_total":    query_prometheus("accounts_money_total"),
         "timestamp": time.time(),
     }
 
 def diff_snapshots(before: dict, after: dict) -> dict:
     return {
-        "started":   after["started"]   - before["started"],
+        "started": after["started"] - before["started"],
         "completed": after["completed"] - before["completed"],
         "failed":    after["failed"]    - before["failed"],
+        "money_total_drift": after["money_total"] - before["money_total"],
+        "reserved_total_drift": after["reserved_total"] - before["reserved_total"],
         "max_active": after["active"],   # peak captured separately
         "duration_s": after["timestamp"] - before["timestamp"],
     }
 
 def capture_failure_window(start_time: float, end_time: float) -> dict:
     """Query time series for the failure window for each metric."""
-    metrics = ["transactions_active", "transactions_started_total",
+    metrics = ["transactions_reservations_active", "transactions_started_total",
                "transactions_completed_total", "transactions_failed_total"]
     
     return {
-        m: query_prometheus_range(m, start_time, end_time, step="2s")
+        m: query_prometheus_range(m, start_time, end_time, step="5s")
         for m in metrics
     }
 
@@ -109,7 +114,7 @@ def inject_failure_after_delay(delay, scenario, stage_results):
 
     threading.Thread(target=_inject, daemon=True).start()
 
-def query_actual_tps(window: str = "30s") -> dict:
+def query_actual_tps(window: str = "15s") -> dict:
     return {
         "completed_tps": query_prometheus(f"rate(transactions_completed_total[{window}])"),
         "failed_tps":    query_prometheus(f"rate(transactions_failed_total[{window}])"),
@@ -189,13 +194,12 @@ def calculate_total_money(accounts):
 
 def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: dict):
     diff = diff_snapshots(before_snapshot, after_snapshot)
-    actual_tps = query_actual_tps()
+    # actual_tps = query_actual_tps()
 
     final_accounts = get_accounts_full()
-    transactions = get_transactions()
     initial_total = calculate_total_money(initial_accounts)
     final_total = calculate_total_money(final_accounts)
-    money_drift = final_total - initial_total
+    money_drift = diff['money_total_drift']
     money_drift_rate = (money_drift / initial_total) * 100
     stuck = [a for a in final_accounts if a["reservedAmount"] > 0]
 
@@ -208,14 +212,13 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
     print(f"Transactions started:   {diff['started']:.0f}")
     print(f"Transactions completed: {diff['completed']:.0f}")
     print(f"Transactions failed:    {diff['failed']:.0f}")
-    print(f"Current active:         {before_snapshot['active']-after_snapshot['active']}")
-    print(f"Completed TPS (now):    {actual_tps['completed_tps']:.2f}")
-    print(f"Failed TPS (now):       {actual_tps['failed_tps']:.2f}")
+    print(f"Current active:         {diff['max_active']}")
 
     print("\n==== CONSISTENCY REPORT ====")
     print(f"Money drift: {money_drift}")
     print(f"Money drift percent: {money_drift_rate:.2f}")
     print(f"Stuck reservations: {len(stuck)}")
+    print(f"Reservation amount: {diff['reserved_total_drift']}")
     print("✅ Money conserved" if abs(money_drift) < 0.0001 else "❌ MONEY INCONSISTENCY DETECTED")
     print("✅ No stuck reservations" if not stuck else "❌ Stuck reservations detected")
     print("============================\n")
@@ -266,6 +269,7 @@ def run_experiment():
     #     run_stage(account_ids, tps, duration, index,
     #               scenario=FAILURE_SCENARIOS[0] if index == FAILURE_STAGE_INDEX else None,
     #               stage_results=stage_results)
+    # 5 TPS, 30 Seconds
     run_stage(account_ids, 5, 30, 1,
                 scenario=TEST_SCENARIO,
                 stage_results=stage_results)
