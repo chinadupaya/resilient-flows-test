@@ -3,6 +3,8 @@ import random
 import time
 import subprocess
 import threading
+import datetime
+import csv
 
 PROMETHEUS_URL = "http://localhost:9095"
 ACCOUNT_SERVICE_URL = "http://localhost:8080/api/v1/accounts"
@@ -43,7 +45,7 @@ FAILURE_SCENARIOS = [
         "multi": True,
     },
 ]
-TEST_SCENARIO = FAILURE_SCENARIOS[0]
+TEST_SCENARIO = FAILURE_SCENARIOS[2]
 
 def query_prometheus(metric: str) -> float:
     """Instant query - returns current value."""
@@ -70,8 +72,8 @@ def snapshot_metrics() -> dict:
         "failed":    query_prometheus("transactions_failed_total"),
         "active":    query_prometheus("transactions_reservations_active"),
         "stuck":    query_prometheus("transactions_stuck"),
-        "money_total":    query_prometheus("accounts_reserved_total"),
-        "reserved_total":    query_prometheus("accounts_money_total"),
+        "money_total":    query_prometheus("accounts_money"),
+        "reserved_total":    query_prometheus("accounts_reserved"),
         "timestamp": time.time(),
     }
 
@@ -80,9 +82,10 @@ def diff_snapshots(before: dict, after: dict) -> dict:
         "started": after["started"] - before["started"],
         "completed": after["completed"] - before["completed"],
         "failed":    after["failed"]    - before["failed"],
+        "stuck":    after["stuck"]    - before["stuck"],
         "money_total_drift": after["money_total"] - before["money_total"],
         "reserved_total_drift": after["reserved_total"] - before["reserved_total"],
-        "max_active": after["active"],   # peak captured separately
+        "max_active": after["active"] - before["reserved_total"],   # peak captured separately
         "duration_s": after["timestamp"] - before["timestamp"],
     }
 
@@ -227,12 +230,15 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
         "money_drift": money_drift,
         "money_drift_rate": str(money_drift_rate) + "%",
         "stuck_reservations": len(stuck),
-        "transactions": diff,
-        "loss_rate_pct": diff['failed'] / max(diff['started'], 1) * 100,
+        "reservation_total_drift": diff['reserved_total_drift'],
+        "transactions_started": diff['started'],
+        "transactions_completed": diff['completed'],
+        "transactions_failed": diff['failed'],
+        "transactions_active": diff['max_active'],
     }
 
-def run_stage(account_ids, tps, duration, stage_index, scenario=None, stage_results=None):
-    print(f"\nStage {stage_index}: {tps} TPS for {duration}s")
+def run_stage(account_ids, tps, duration, scenario=None, stage_results=None):
+    print(f"\n{tps} TPS for {duration}s")
     delay = 1.0 / tps
     end_time = time.time() + duration
     if scenario and stage_results is not None:
@@ -254,8 +260,9 @@ def run_stage(account_ids, tps, duration, stage_index, scenario=None, stage_resu
         if sleep_time > 0:
             time.sleep(sleep_time)
 
-def run_experiment():
-    print(f"\nStarting consistency-focused experiment of type {SYNC_MODE}")
+def run_experiment(count):
+    print("===========")
+    print(f"\nExperiment no. {count}. Starting consistency-focused experiment of type {SYNC_MODE}")
     run_sql_init()
     run_spanner_init()
     time.sleep(3)
@@ -264,13 +271,7 @@ def run_experiment():
 
     before = snapshot_metrics()
     stage_results = {}
-
-    # for index, (tps, duration) in enumerate(RAMP_STAGES):
-    #     run_stage(account_ids, tps, duration, index,
-    #               scenario=FAILURE_SCENARIOS[0] if index == FAILURE_STAGE_INDEX else None,
-    #               stage_results=stage_results)
-    # 5 TPS, 30 Seconds
-    run_stage(account_ids, 5, 30, 1,
+    run_stage(account_ids, 5, 30,
                 scenario=TEST_SCENARIO,
                 stage_results=stage_results)
 
@@ -285,7 +286,19 @@ def run_experiment():
                 for ts, val in series:
                     print(f"  {time.strftime('%H:%M:%S', time.localtime(float(ts)))} → {float(val):.1f}")
 
-    check_consistency(initial_accounts, before, after)
+    result = check_consistency(initial_accounts, before, after)
+    result["type"] = SYNC_MODE
+    result["experiment_num"] = count
+    return result
 
 if __name__ == "__main__":
-    run_experiment()
+    CSV_FILE = f"results/experiment_results_{SYNC_MODE}_{TEST_SCENARIO['name']}_{datetime.datetime.now()}.csv"
+    all_results = []
+    for i in range(10):
+        result = run_experiment(i)
+        all_results.append(result)
+    fieldnames = all_results[0].keys()
+    with open(CSV_FILE, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(all_results)

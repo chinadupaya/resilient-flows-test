@@ -13,22 +13,17 @@ public interface TransactionRepository extends SpannerRepository<Transaction, St
 
     @Query("""
     SELECT * FROM transactions
-    WHERE saga_state IN (
-    'ACCOUNT_RESERVATION_REQUESTED',
-    'ACCOUNT_RESERVATION_SUCCESS',
-    'ACCOUNT_COMMIT_REQUESTED',
-    'COMPENSATION_REQUESTED'
+    WHERE status IN (
+    'PENDING'
     )
     """)
     List<Transaction> findTransactionsWithActiveReservations();
 
-    // how many transactions are currently holding funds
+    // how many transactions are not done
     @Query("""
     SELECT COUNT(*) FROM transactions
-    WHERE saga_state IN (
-    'ACCOUNT_RESERVATION_REQUESTED',
-    'ACCOUNT_RESERVATION_SUCCESS',
-    'ACCOUNT_COMMIT_REQUESTED'
+    WHERE status IN (
+    'PENDING'
     )
     """)
     long countActiveReservations();
@@ -36,7 +31,7 @@ public interface TransactionRepository extends SpannerRepository<Transaction, St
     // transactions older than 30 seconds
     @Query("""
     SELECT COUNT(*) FROM transactions
-    WHERE saga_state NOT IN ('COMPLETED','FAILED')
+    WHERE status NOT IN ('COMPLETED','FAILED')
     AND created_at < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 SECOND)
     """)
     long countStuckTransactions();

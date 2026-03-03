@@ -273,7 +273,7 @@ public class AccountService {
     }
 
     // ============================================================================
-    // PRIVATE CORE BUSINESS LOGIC (used by both sync and async)
+    // Used by both sync and async
     // ============================================================================
 
     private AccountReservationResponse doReservation(UUID sourceAccountId, BigDecimal amount, UUID transactionId) {
