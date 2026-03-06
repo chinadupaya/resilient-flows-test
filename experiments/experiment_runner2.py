@@ -37,15 +37,14 @@ FAILURE_SCENARIOS = [
         "name": "Kafka failure",
         "failure_cmd": ["docker", "stop", "kafka"],
         "recovery_cmd": ["docker", "start", "kafka"],
-    },
-    {
-        "name": "Cascading: DB + Kafka",
-        "failure_cmd": [["docker", "stop", "postgres-account"], ["docker", "stop", "kafka"]],
-        "recovery_cmd": [["docker", "start", "postgres-account"], ["docker", "start", "kafka"]],
-        "multi": True,
-    },
+    }
+    # {
+    #     "name": "Cascading: DB + Kafka",
+    #     "failure_cmd": [["docker", "stop", "postgres-account"], ["docker", "stop", "kafka"]],
+    #     "recovery_cmd": [["docker", "start", "postgres-account"], ["docker", "start", "kafka"]],
+    #     "multi": True,
+    # },
 ]
-TEST_SCENARIO = FAILURE_SCENARIOS[2]
 
 def query_prometheus(metric: str) -> float:
     """Instant query - returns current value."""
@@ -85,7 +84,7 @@ def diff_snapshots(before: dict, after: dict) -> dict:
         "stuck":    after["stuck"]    - before["stuck"],
         "money_total_drift": after["money_total"] - before["money_total"],
         "reserved_total_drift": after["reserved_total"] - before["reserved_total"],
-        "max_active": after["active"] - before["reserved_total"],   # peak captured separately
+        "max_active": after["active"] - before["active"],
         "duration_s": after["timestamp"] - before["timestamp"],
     }
 
@@ -203,8 +202,10 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
     initial_total = calculate_total_money(initial_accounts)
     final_total = calculate_total_money(final_accounts)
     money_drift = diff['money_total_drift']
-    money_drift_rate = (money_drift / initial_total) * 100
+    money_drift_rate = (money_drift / initial_total)
     stuck = [a for a in final_accounts if a["reservedAmount"] > 0]
+    transactions_stuck = diff['started'] - (diff['completed'] + diff['failed'])
+    transactions_stuck_rate = transactions_stuck / diff['started']
 
     if stuck:
         print("\nStuck reservation details:")
@@ -228,13 +229,15 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
 
     return {
         "money_drift": money_drift,
-        "money_drift_rate": str(money_drift_rate) + "%",
+        "money_drift_rate": money_drift_rate,
         "stuck_reservations": len(stuck),
         "reservation_total_drift": diff['reserved_total_drift'],
         "transactions_started": diff['started'],
         "transactions_completed": diff['completed'],
         "transactions_failed": diff['failed'],
         "transactions_active": diff['max_active'],
+        "transactions_stuck":transactions_stuck,
+        "transactions_stuck_rate":transactions_stuck_rate
     }
 
 def run_stage(account_ids, tps, duration, scenario=None, stage_results=None):
@@ -260,7 +263,7 @@ def run_stage(account_ids, tps, duration, scenario=None, stage_results=None):
         if sleep_time > 0:
             time.sleep(sleep_time)
 
-def run_experiment(count):
+def run_experiment(count, scenario):
     print("===========")
     print(f"\nExperiment no. {count}. Starting consistency-focused experiment of type {SYNC_MODE}")
     run_sql_init()
@@ -272,7 +275,7 @@ def run_experiment(count):
     before = snapshot_metrics()
     stage_results = {}
     run_stage(account_ids, 5, 30,
-                scenario=TEST_SCENARIO,
+                scenario=scenario,
                 stage_results=stage_results)
 
     time.sleep(10)
@@ -289,13 +292,26 @@ def run_experiment(count):
     result = check_consistency(initial_accounts, before, after)
     result["type"] = SYNC_MODE
     result["experiment_num"] = count
+    result["scenario"] =  scenario["name"]
     return result
 
 if __name__ == "__main__":
-    CSV_FILE = f"results/experiment_results_{SYNC_MODE}_{TEST_SCENARIO['name']}_{datetime.datetime.now()}.csv"
+    CSV_FILE = f"results/experiment_results_{SYNC_MODE}_{datetime.datetime.now()}.csv"
+    
+    TEST_SCENARIO = FAILURE_SCENARIOS[0]
+    
+
+    exp_count = 10
     all_results = []
-    for i in range(10):
-        result = run_experiment(i)
+    print(f"Running experiment {TEST_SCENARIO['name']}")
+    for i in range(exp_count):
+        result = run_experiment(i, TEST_SCENARIO)
+        all_results.append(result)
+
+    TEST_SCENARIO = FAILURE_SCENARIOS[2]
+    print(f"Running experiment {TEST_SCENARIO['name']}")
+    for i in range(exp_count):
+        result = run_experiment(i, TEST_SCENARIO)
         all_results.append(result)
     fieldnames = all_results[0].keys()
     with open(CSV_FILE, "w", newline="") as f:

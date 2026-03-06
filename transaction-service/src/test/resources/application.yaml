@@ -13,6 +13,9 @@ spring:
         project-id: test-project
         instance-id: test-instance
         database: test-database
+        min-sessions: 0
+        max-sessions: 5
+        fail-if-invalid-session: false
         emulator:
           enabled: true
   kafka:

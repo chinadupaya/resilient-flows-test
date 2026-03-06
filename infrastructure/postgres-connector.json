@@ -1,0 +1,23 @@
+{
+  "name": "account-postgres-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres-account",
+    "database.port": "5432",
+    "database.user": "postgres",
+    "database.password": "admin",
+    "database.dbname": "account",
+    "database.server.name": "account-db",
+    "table.include.list": "public.accounts",
+
+    "plugin.name": "pgoutput",
+
+    "slot.name": "debezium_slot",
+    "publication.autocreate.mode": "filtered",
+
+    "topic.prefix": "account",
+
+    "schema.history.internal.kafka.bootstrap.servers": "kafka:9092",
+    "schema.history.internal.kafka.topic": "schema-changes.account"
+  }
+}

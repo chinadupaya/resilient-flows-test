@@ -48,14 +48,14 @@ public class AccountService {
         this.accountProducer = accountProducer;
         this.transactionsRestClient = transactionsRestClient;
         
-        Gauge.builder("accounts.money.total",
-            accountRepository,
-            repo -> repo.totalSystemMoney().doubleValue())
-            .register(meterRegistry);
-        Gauge.builder("accounts.reserved.total",
-            accountRepository,
-            repo -> repo.totalReserved().doubleValue())
-        .register(meterRegistry);
+        // Gauge.builder("accounts.money.total",
+        //     accountRepository,
+        //     repo -> repo.totalSystemMoney().doubleValue())
+        //     .register(meterRegistry);
+        // Gauge.builder("accounts.reserved.total",
+        //     accountRepository,
+        //     repo -> repo.totalReserved().doubleValue())
+        // .register(meterRegistry);
     }
 
     // ============================================================================

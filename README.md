@@ -42,3 +42,16 @@ docker exec -i postgres-account \
 ```
 mvn spring-boot:run
 ```
+
+5. 
+```
+curl -X POST http://localhost:8083/connectors \
+  -H "Content-Type: application/json" \
+  -d @postgres-connector.json
+```
+```
+docker exec -it kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic account.public.accounts \
+  --from-beginning
+```
