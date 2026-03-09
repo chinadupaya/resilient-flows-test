@@ -1,0 +1,97 @@
+@startuml high-level-diagram
+left to right direction
+skinparam componentStyle rectangle
+
+' =========================
+' Microservices Level
+' =========================
+package "Microservices Level" {
+  component "app1" as app1
+  component "app2" as app2
+  component "app3" as app3
+}
+
+' =========================
+' Durable Workflows Level
+' =========================
+package "Durable Workflows Level" {
+  component "Durable Workflows\nEngine" as temporal
+}
+
+' =========================
+' Database Level
+' =========================
+package "Database Level" {
+  database "db1\nPostgres" as db1
+  database "db2\nPostgres" as db2
+  database "db3\nSpanner" as db3
+}
+
+' =========================
+' Messaging Level
+' =========================
+package "Messaging Level" {
+  queue "Kafka\nMessage Broker" as kafka
+}
+
+' =========================
+' CDC Level
+' =========================
+package "CDC Level" {
+'   component "DB\nConnector1" as debez1
+'   component "DB\nConnector2" as debez2
+'   component "DB\nConnector3" as spannerCDC
+  component "CDC Connector" as cdcConnector
+}
+
+' =========================
+' External Consumers
+' =========================
+component "BigQuery" as bigquery
+component "Other Listeners" as listeners
+
+' =========================
+' Observability
+' =========================
+package "Observability Level" {
+  component "Dashboards" as dashboards
+  component "Logs" as logs
+  component "Metrics" as metrics
+}
+
+' =========================
+' App -> DB writes
+' =========================
+app1 --> db1 : (1) insert/update
+app2 --> db2 : (1) insert/update
+app3 --> db3 : (1) insert/update
+
+' =========================
+' CDC reads DB changes
+' =========================
+db1 --> cdcConnector : (2) receive changes
+db2 --> cdcConnector : (2) receive changes
+db3 --> cdcConnector : (2) receive changes
+
+' =========================
+' CDC -> Kafka
+' =========================
+cdcConnector --> kafka : (3) send events
+cdcConnector --> kafka : (3) send events
+cdcConnector --> kafka : (3) send events
+
+' =========================
+' Kafka -> Consumers
+' =========================
+kafka --> bigquery : (4) receive events
+kafka --> listeners : (4) receive events
+' kafka --> temporal : (4) receive events
+
+' =========================
+' Workflow -> Apps
+' =========================
+temporal --> app1 : (5) persist transactions
+temporal --> app2 : (5) persist transactions
+temporal --> app3 : (5) persist transactions
+
+@enduml

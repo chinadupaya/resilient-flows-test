@@ -43,12 +43,13 @@ docker exec -i postgres-account \
 mvn spring-boot:run
 ```
 
-5. 
+5. Create the connectors 
 ```
 curl -X POST http://localhost:8083/connectors \
   -H "Content-Type: application/json" \
   -d @postgres-connector.json
 ```
+Optionally, verify if messages are being received
 ```
 docker exec -it kafka kafka-console-consumer \
   --bootstrap-server localhost:9092 \

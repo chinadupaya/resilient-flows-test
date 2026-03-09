@@ -13,3 +13,8 @@ scrape_configs:
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['host.docker.internal:9090']
+
+  - job_name: drift-detector
+    static_configs:
+      # - targets: ['drift-detector:8000']
+      - targets: ['host.docker.internal:8000']
