@@ -123,7 +123,18 @@ services:
       - prometheus
     volumes:
       - grafana-storage:/var/lib/grafana
-      
+  
+  spanner-cdc-poller:
+    build: ../transaction-poller
+    container_name: spanner-poller
+    depends_on:
+      - kafka
+      - spanner-emulator
+      - spanner-init
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      SPANNER_EMULATOR_HOST: spanner-emulator:9010
+    restart: unless-stopped    
   # Drift detector
   # drift-detector:
   #   build: ../drift-detector-service

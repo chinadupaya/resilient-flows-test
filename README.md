@@ -56,3 +56,6 @@ docker exec -it kafka kafka-console-consumer \
   --topic account.public.accounts \
   --from-beginning
 ```
+
+See all topics:
+docker exec kafka kafka-topics --bootstrap-server kafka:29092 --list
