@@ -13,13 +13,25 @@ TABLE = "public.accounts"
 
 
 ACCOUNTS_TOPIC = "account.public.accounts"
-TRANSACITONS_TOPIC = "transaction.public.transactions"
+TRANSACTIONS_TOPIC = "transaction.public.transactions"
+
+snapshot_complete = False
+initial_total = None
+
+drift_detected=True
 
 INITIAL_TOTAL = Decimal("0") 
 # Prometheus metrics
 account_total_metric = Gauge(
     "accounts_total_money",
     "Running total of all account balances"
+)
+
+reserved_total = Decimal("0")
+
+reserved_total_metric = Gauge(
+    "accounts_reserved_total",
+    "Running total of reserved funds"
 )
 
 expected_total_metric = Gauge(
@@ -56,6 +68,9 @@ expected_total = INITIAL_TOTAL
 
 # track last known balances per account
 balances = {}
+reserved_balances={}
+
+initial_total = None
 
 # rolling null window
 null_windows = {}
@@ -64,7 +79,6 @@ WINDOW_SIZE = 100
 # Helper functions
 
 def decode_decimal(value, scale=2):
-    """Decode Debezium decimal (base64 bytes → Decimal)."""
     if value is None:
         return Decimal("0")
 
@@ -72,21 +86,10 @@ def decode_decimal(value, scale=2):
     integer = int.from_bytes(raw, byteorder="big", signed=True)
     return Decimal(integer) / (10 ** scale)
 
-def update_null_ratio(row):
-    for col, value in row.items():
-        window = null_windows.setdefault(col, [])
-
-        window.append(value is None)
-        if len(window) > WINDOW_SIZE:
-            window.pop(0)
-
-        ratio = sum(window) / len(window)
-        null_ratio.labels(TABLE, col).set(ratio)
-
-
 def update_account_balance(before, after):
 
     global account_total
+    global reserved_total
 
     before_id = before.get("id") if before else None
     after_id = after.get("id") if after else None
@@ -96,22 +99,42 @@ def update_account_balance(before, after):
         return
 
     prev_balance = balances.get(account_id, Decimal("0"))
+    prev_reserved = reserved_balances.get(account_id, Decimal("0"))
 
     new_balance = decode_decimal(after.get("balance")) if after else Decimal("0")
+    new_reserved = decode_decimal(after.get("reservedAmount")) if after else Decimal("0")
 
-    delta = new_balance - prev_balance
+    balance_delta = new_balance - prev_balance
+    reserved_delta = new_reserved - prev_reserved
 
     balances[account_id] = new_balance
-    account_total += delta
+    reserved_balances[account_id] = new_reserved
+
+    account_total += balance_delta
+    reserved_total += reserved_delta
 
     account_total_metric.set(float(account_total))
+    reserved_total_metric.set(float(reserved_total))
 
 def process_account_event(payload):
+
+    global snapshot_complete
+    global initial_total
 
     before = payload.get("before") or {}
     after = payload.get("after") or {}
 
     update_account_balance(before, after)
+
+    snapshot_flag = payload.get("source", {}).get("snapshot")
+
+    if snapshot_flag == "last" and not snapshot_complete:
+        snapshot_complete = True
+        initial_total = account_total + reserved_total
+
+        log.info(
+            f"Snapshot complete. Initial system total = {initial_total}"
+        )
 
     ts_ms = payload.get("source", {}).get("ts_ms")
     if ts_ms:
@@ -127,70 +150,51 @@ def process_transaction_event(event):
     tx_type = event.get("type")
     amount = Decimal(str(event.get("amount", 0)))
 
-    if tx_type == "deposit":
-        expected_total += amount
-
-    elif tx_type == "withdrawal":
-        expected_total -= amount
+    # expected_total == something
 
     expected_total_metric.set(float(expected_total))
     events_processed.labels("transactions").inc()
 
 def check_invariant():
 
-    drift = abs(account_total - expected_total)
+    if initial_total is None:
+        return
+
+    current_total = account_total + reserved_total
+    drift = abs(current_total - initial_total)
 
     money_drift_metric.set(float(drift))
 
     if drift > Decimal("0.01"):
         log.error(
             f"FINANCIAL DRIFT DETECTED "
-            f"(accounts={account_total}, expected={expected_total}, drift={drift})"
+            f"(initial={initial_total}, current={current_total}, drift={drift})"
         )
-
-def process_event(payload):
-    op = payload.get("op")
-
-    if op == "r":  # snapshot event
-        return
-
-    before = payload.get("before") or {}
-    after = payload.get("after") or {}
-
-    row = after or before
-    if not row:
-        return
-
-    # event lag metric
-    ts_ms = payload.get("source", {}).get("ts_ms")
-    if ts_ms:
-        lag = time.time() - ts_ms / 1000
-        event_lag.labels(TABLE).set(lag)
-
-    # TO DO detect_schema_changes()
-    update_null_ratio(row)
-    update_checksum(row)
-
-    events_processed.labels(op=op).inc()
-
-    log.info(f"CDC {op} → {row}")
-
+        drift_detected = True
+    elif drift < Decimal("0.01") and drift_detected:
+        drift_detected=False
+        log.info("Resetting drift detection")
 
 def main():
 
     consumer = KafkaConsumer(
         ACCOUNTS_TOPIC,
-        TX_TOPIC,
+        TRANSACTIONS_TOPIC,
         bootstrap_servers="localhost:9092",
-        group_id="financial-drift-detector",
+        # group_id="financial-drift-detector",
+        group_id=f"financial-drift-detector-{int(time.time())}", # for debugging
         auto_offset_reset="earliest",
-        value_deserializer=lambda b: json.loads(b.decode("utf-8")),
+        # value_deserializer=lambda b: json.loads(b.decode("utf-8")),
+        value_deserializer=lambda b: json.loads(b.decode("utf-8")) if b else None
     )
 
     start_http_server(8000)
     log.info("Drift detector running — metrics on :8000/metrics")
-
+    last_check = time.time()
     for msg in consumer:
+        if msg.value is None:
+            log.debug(f"Tombstone received for key {msg.key}")
+            continue
         try:
             topic = msg.topic
             event = msg.value
@@ -199,11 +203,12 @@ def main():
 
                 payload = event.get("payload")
                 if payload:
+                    # print("ACCOUNT DB EVENT RECEIVED:", payload)
                     process_account_event(payload)
 
-            elif topic == TRANSACITONS_TOPIC:
+            # elif topic == TRANSACTIONS_TOPIC:
 
-                process_transaction_event(event)
+                # process_transaction_event(event)
 
             # check invariant every few seconds
             if time.time() - last_check > 5:

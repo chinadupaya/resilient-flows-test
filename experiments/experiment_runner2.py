@@ -71,8 +71,8 @@ def snapshot_metrics() -> dict:
         "failed":    query_prometheus("transactions_failed_total"),
         "active":    query_prometheus("transactions_reservations_active"),
         "stuck":    query_prometheus("transactions_stuck"),
-        "money_total":    query_prometheus("accounts_money"),
-        "reserved_total":    query_prometheus("accounts_reserved"),
+        # "money_total":    query_prometheus("accounts_money"),
+        # "reserved_total":    query_prometheus("accounts_reserved"),
         "timestamp": time.time(),
     }
 
@@ -82,8 +82,8 @@ def diff_snapshots(before: dict, after: dict) -> dict:
         "completed": after["completed"] - before["completed"],
         "failed":    after["failed"]    - before["failed"],
         "stuck":    after["stuck"]    - before["stuck"],
-        "money_total_drift": after["money_total"] - before["money_total"],
-        "reserved_total_drift": after["reserved_total"] - before["reserved_total"],
+        # "money_total_drift": after["money_total"] - before["money_total"],
+        # "reserved_total_drift": after["reserved_total"] - before["reserved_total"],
         "max_active": after["active"] - before["active"],
         "duration_s": after["timestamp"] - before["timestamp"],
     }
@@ -191,8 +191,10 @@ def get_transactions():
     return r.json()
 
 def calculate_total_money(accounts):
-    # return sum(a["balance"] + a["reservedAmount"] for a in accounts)
-    return sum(a["balance"] for a in accounts)
+    return {
+        "balance": sum(a["balance"] for a in accounts),
+        "reserved": sum(a["reservedAmount"] for a in accounts)
+    }
 
 def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: dict):
     diff = diff_snapshots(before_snapshot, after_snapshot)
@@ -201,10 +203,12 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
     final_accounts = get_accounts_full()
     initial_total = calculate_total_money(initial_accounts)
     final_total = calculate_total_money(final_accounts)
-    money_drift = diff['money_total_drift']
-    money_drift_rate = (money_drift / initial_total)
+    # money_drift = diff['money_total_drift']
+    money_drift=abs(final_total["balance"]-initial_total["balance"])
+    money_drift_rate = (money_drift / initial_total["balance"])
+    reservation_drift=abs(final_total["reserved"]-initial_total["reserved"])
     stuck = [a for a in final_accounts if a["reservedAmount"] > 0]
-    transactions_stuck = diff['started'] - (diff['completed'] + diff['failed'])
+    transactions_stuck = abs(diff['started'] - (diff['completed'] + diff['failed']))
     transactions_stuck_rate = transactions_stuck / diff['started']
 
     if stuck:
@@ -222,7 +226,7 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
     print(f"Money drift: {money_drift}")
     print(f"Money drift percent: {money_drift_rate:.2f}")
     print(f"Stuck reservations: {len(stuck)}")
-    print(f"Reservation amount: {diff['reserved_total_drift']}")
+    print(f"Reservation amount: {reservation_drift}")
     print("✅ Money conserved" if abs(money_drift) < 0.0001 else "❌ MONEY INCONSISTENCY DETECTED")
     print("✅ No stuck reservations" if not stuck else "❌ Stuck reservations detected")
     print("============================\n")
@@ -231,7 +235,7 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
         "money_drift": money_drift,
         "money_drift_rate": money_drift_rate,
         "stuck_reservations": len(stuck),
-        "reservation_total_drift": diff['reserved_total_drift'],
+        "reservation_total_drift": reservation_drift,
         "transactions_started": diff['started'],
         "transactions_completed": diff['completed'],
         "transactions_failed": diff['failed'],
@@ -301,7 +305,7 @@ if __name__ == "__main__":
     TEST_SCENARIO = FAILURE_SCENARIOS[0]
     
 
-    exp_count = 10
+    exp_count = 1
     all_results = []
     print(f"Running experiment {TEST_SCENARIO['name']}")
     for i in range(exp_count):
