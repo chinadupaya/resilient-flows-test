@@ -203,13 +203,15 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
     final_accounts = get_accounts_full()
     initial_total = calculate_total_money(initial_accounts)
     final_total = calculate_total_money(final_accounts)
+    print("initial_total", initial_total)
+    print("final_total", final_total)
     # money_drift = diff['money_total_drift']
     money_drift=abs(final_total["balance"]-initial_total["balance"])
     money_drift_rate = (money_drift / initial_total["balance"])
     reservation_drift=abs(final_total["reserved"]-initial_total["reserved"])
     stuck = [a for a in final_accounts if a["reservedAmount"] > 0]
     transactions_stuck = abs(diff['started'] - (diff['completed'] + diff['failed']))
-    transactions_stuck_rate = transactions_stuck / diff['started']
+    transactions_stuck_rate = transactions_stuck / after_snapshot['started']
 
     if stuck:
         print("\nStuck reservation details:")
@@ -312,11 +314,13 @@ if __name__ == "__main__":
         result = run_experiment(i, TEST_SCENARIO)
         all_results.append(result)
 
-    TEST_SCENARIO = FAILURE_SCENARIOS[2]
-    print(f"Running experiment {TEST_SCENARIO['name']}")
-    for i in range(exp_count):
-        result = run_experiment(i, TEST_SCENARIO)
-        all_results.append(result)
+    # TEST_SCENARIO = FAILURE_SCENARIOS[2]
+    # print(f"Running experiment {TEST_SCENARIO['name']}")
+    # for i in range(exp_count):
+    #     result = run_experiment(i, TEST_SCENARIO)
+    #     all_results.append(result)
+
+    
     fieldnames = all_results[0].keys()
     with open(CSV_FILE, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
