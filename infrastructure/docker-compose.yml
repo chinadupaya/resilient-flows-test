@@ -48,6 +48,7 @@ services:
     volumes:
       - postgres:/data
 
+  # SHARED SERVICES
   # Kafka infrastructure
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -146,7 +147,78 @@ services:
   #   environment:
   #     KAFKA_BOOTSTRAP: kafka:29092
   #   restart: unless-stopped
+
+  # RESTATE DURABLE EXECUTION ENGINE
+  restate-1:
+    image: docker.restate.dev/restatedev/restate:latest
+    container_name: restate-1
+    ports:
+      - "18080:8080"
+      - "19070:9070"
+      - "15122:5122"
+    volumes:
+      - restate-data:/restate-data
+    environment:
+      RESTATE_CLUSTER_NAME: "restate-cluster"
+      RESTATE_NODE_NAME: restate-1
+      RESTATE_FORCE_NODE_ID: 1
+      RESTATE_DEFAULT_REPLICATION: 2
+      RESTATE_ADVERTISED_ADDRESS: "http://restate-1:5122"
+      RESTATE_METADATA_CLIENT__ADDRESSES: '["http://restate-1:5122","http://restate-2:5122","http://restate-3:5122"]'
+      RESTATE_AUTO_PROVISION: "true"
+
+      RESTATE_WORKER__SNAPSHOTS__DESTINATION: "s3://restate/snapshots"
+      RESTATE_WORKER__SNAPSHOTS__AWS_REGION: "local"
+      RESTATE_WORKER__SNAPSHOTS__AWS_ENDPOINT_URL: "http://minio:9000"
+      RESTATE_WORKER__SNAPSHOTS__AWS_ALLOW_HTTP: "true"
+      RESTATE_WORKER__SNAPSHOTS__AWS_ACCESS_KEY_ID: "minioadmin"
+      RESTATE_WORKER__SNAPSHOTS__AWS_SECRET_ACCESS_KEY: "minioadmin"
+
+  restate-2:
+    image: docker.restate.dev/restatedev/restate:latest
+    container_name: restate-2
+    ports:
+      - "28080:8080"
+      - "29070:9070"
+      - "25122:5122"
+    volumes:
+      - restate-data:/restate-data
+    environment:
+      RESTATE_CLUSTER_NAME: "restate-cluster"
+      RESTATE_NODE_NAME: restate-2
+      RESTATE_FORCE_NODE_ID: 2
+      RESTATE_DEFAULT_REPLICATION: 2
+      RESTATE_ADVERTISED_ADDRESS: "http://restate-2:5122"
+      RESTATE_METADATA_CLIENT__ADDRESSES: '["http://restate-1:5122","http://restate-2:5122","http://restate-3:5122"]'
+      RESTATE_AUTO_PROVISION: "false"
+
+  restate-3:
+    image: docker.restate.dev/restatedev/restate:latest
+    container_name: restate-3
+    ports:
+      - "38080:8080"
+      - "39070:9070"
+      - "35122:5122"
+    volumes:
+      - restate-data:/restate-data
+    environment:
+      RESTATE_CLUSTER_NAME: "restate-cluster"
+      RESTATE_NODE_NAME: restate-3
+      RESTATE_FORCE_NODE_ID: 3
+      RESTATE_DEFAULT_REPLICATION: 2
+      RESTATE_ADVERTISED_ADDRESS: "http://restate-3:5122"
+      RESTATE_METADATA_CLIENT__ADDRESSES: '["http://restate-1:5122","http://restate-2:5122","http://restate-3:5122"]'
+      RESTATE_AUTO_PROVISION: "false"
+
+  minio:
+    image: quay.io/minio/minio
+    container_name: minio
+    entrypoint: "/bin/sh"
+    command: "-c 'mkdir -p /data/restate && /usr/bin/minio server --quiet /data'"
+    ports:
+      - "9000:9000"
 volumes:
   postgres:
   grafana-storage:
   prometheus-data:
+  restate-data:
