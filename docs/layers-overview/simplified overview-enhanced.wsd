@@ -9,42 +9,49 @@ package "Microservices Level" {
   component "app1" as app1
   component "app2" as app2
   component "app3" as app3
+
+  ' component "<size:20><&book>App Log 1<&book></size>" as appLog1
+  ' component "<size:20><&book>App Log 2<&book></size>" as appLog2
+  ' component "<size:20><&book>App Log 3<&book></size>" as appLog3
+
+  
 }
 
 ' =========================
 ' Durable Workflows Level
 ' =========================
-package "Durable Workflows Level" {
-  component "Durable Workflows\nEngine" as temporal
-}
-
-
+' package "Durable Workflows Level" {
+'   component "Durable Workflows\nEngine" as temporal
+' }
 
 ' =========================
 ' Database Level
 ' =========================
-package "Database Level" {
+package "Database Level" as dbLevel{
   database "db1\nPostgres" as db1
   database "db2\nPostgres" as db2
   database "db3\nSpanner" as db3
+
+  component "<size:20><&book>DB Log 1<&book></size>" as dbLog1 #MediumAquaMarine
+  component "<size:20><&book>DB Log 2<&book></size>" as dbLog2 #MediumAquaMarine
+  component "<size:20><&book>DB Log 3<&book></size>" as dbLog3 #MediumAquaMarine
 }
 
 ' =========================
 ' Messaging Level
 ' =========================
 package "Messaging Level" {
-  queue "Kafka\nMessage Broker" as kafka
+  queue "Message Broker" as kafka
 }
 
 ' =========================
 ' CDC Level
 ' =========================
 package "CDC Level" {
-'   component "DB\nConnector1" as debez1
-'   component "DB\nConnector2" as debez2
-'   component "DB\nConnector3" as spannerCDC
-  component "CDC Connector" as cdcConnector
+  component "CDC Connector" as cdcConnector #MediumAquaMarine
 }
+
+component "Drift Detector" as driftDetector
 
 ' =========================
 ' External Consumers
@@ -62,38 +69,61 @@ component "Other Listeners" as listeners
 ' }
 
 ' =========================
+' App -> DurableState writes
+' =========================
+
+' app1 --> appLog1
+' app2 --> appLog2
+' app3 --> appLog3
+
+' =========================
 ' App -> DB writes
 ' =========================
-app1 --> db1 : (1) insert/update
-app2 --> db2 : (1) insert/update
-app3 --> db3 : (1) insert/update
+app1 --> db1
+app2 --> db2
+app3 --> db3
+
+
+' =========================
+' DB -> Log writes
+' =========================
+db1 --> dbLog1
+db2 --> dbLog2
+db3 --> dbLog3
 
 ' =========================
 ' CDC reads DB changes
 ' =========================
-db1 --> cdcConnector : (2) receive changes
-db2 --> cdcConnector : (2) receive changes
-db3 --> cdcConnector : (2) receive changes
+dbLog1 --> cdcConnector
+dbLog2 --> cdcConnector
+dbLog3 --> cdcConnector
+
+
+' =========================
+' Drift Detector Accepts events
+' =========================
+driftDetector --> cdcConnector
+driftDetector --> bigquery
 
 ' =========================
 ' CDC -> Kafka
 ' =========================
-cdcConnector --> kafka : (3) send events
-cdcConnector --> kafka : (3) send events
-cdcConnector --> kafka : (3) send events
+cdcConnector --> kafka
+' cdcConnector --> kafka
+' cdcConnector --> kafka
 
 ' =========================
 ' Kafka -> Consumers
 ' =========================
-kafka --> bigquery : (4) receive events
-kafka --> listeners : (4) receive events
+kafka --> bigquery
+kafka --> listeners
 ' kafka --> temporal : (4) receive events
 
 ' =========================
 ' Workflow -> Apps
 ' =========================
-temporal --> app1 : (5) persist transactions
-temporal --> app2 : (5) persist transactions
-temporal --> app3 : (5) persist transactions
+' temporal <-- appLog1 : (5) persist transactions
+' temporal <-- appLog2 : (5) persist transactions
+' temporal <-- appLog3 : (5) persist transactions
 
 @enduml
