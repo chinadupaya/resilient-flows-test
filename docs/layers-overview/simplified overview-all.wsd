@@ -83,9 +83,9 @@ app3 --> appLog3
 ' =========================
 ' App -> DB writes
 ' =========================
-appLog1 --> db1 : (1) insert/update
-appLog2 --> db2 : (1) insert/update
-appLog3 --> db3 : (1) insert/update
+appLog1 --> db1 : (2)
+appLog2 --> db2 : (2)
+appLog3 --> db3 : (2)
 
 
 ' =========================
@@ -98,9 +98,9 @@ db3 --> dbLog3
 ' =========================
 ' CDC reads DB changes
 ' =========================
-dbLog1 --> cdcConnector : (2) receive changes
-dbLog2 --> cdcConnector : (2) receive changes
-dbLog3 --> cdcConnector : (2) receive changes
+dbLog1 --> cdcConnector : (2)
+dbLog2 --> cdcConnector : (2)
+dbLog3 --> cdcConnector : (2)
 
 
 ' =========================
@@ -112,22 +112,22 @@ driftDetector --> bigquery
 ' =========================
 ' CDC -> Kafka
 ' =========================
-cdcConnector --> kafka : (3) send events
-cdcConnector --> kafka : (3) send events
-cdcConnector --> kafka : (3) send events
+cdcConnector --> kafka : (3)
+cdcConnector --> kafka : (3)
+cdcConnector --> kafka : (3)
 
 ' =========================
 ' Kafka -> Consumers
 ' =========================
-kafka --> bigquery : (4) receive events
-kafka --> listeners : (4) receive events
-' kafka --> temporal : (4) receive events
+kafka --> bigquery : (4)
+kafka --> listeners : (4)
+' kafka --> temporal : (4)
 
 ' =========================
 ' Workflow -> Apps
 ' =========================
-temporal <-- appLog1 : (5) persist transactions
-temporal <-- appLog2 : (5) persist transactions
-temporal <-- appLog3 : (5) persist transactions
+temporal --> app1 : (1)
+temporal --> app2 : (1)
+temporal --> app3 : (1)
 
 @enduml

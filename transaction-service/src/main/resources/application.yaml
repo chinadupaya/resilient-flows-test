@@ -23,6 +23,15 @@ spring:
 
 server:
   port: 9090
+  address: 0.0.0.0
+
+restate:
+  sdk:
+    http:
+      port: 9080
+
+
+
 
 accounts:
   service:

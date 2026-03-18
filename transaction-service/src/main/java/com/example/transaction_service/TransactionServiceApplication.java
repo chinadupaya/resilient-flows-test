@@ -3,6 +3,8 @@ package com.example.transaction_service;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+import dev.restate.sdk.springboot.EnableRestate;
+
 @SpringBootApplication
 public class TransactionServiceApplication {
 

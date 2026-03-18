@@ -18,6 +18,7 @@ experiments/results
 .springBeans
 .sts4-cache
 
-
+# remove this first
+java-maven-spring-boot
 ### VS Code ###
 .vscode/

@@ -9,7 +9,7 @@ import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
 import com.example.transaction_service.model.dto.TransactionReservation;
 import com.example.transaction_service.service.TransactionService;
-import com.google.rpc.context.AttributeContext.Response;
+
 import com.example.transaction_service.model.TransactionStatus;
 import com.example.transaction_service.model.TransactionType;
 

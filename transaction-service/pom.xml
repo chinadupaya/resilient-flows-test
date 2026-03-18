@@ -17,6 +17,7 @@
 
 	<properties>
 		<java.version>21</java.version>
+		<restate.version>2.6.0</restate.version>
 	</properties>
 
 	<dependencyManagement>
@@ -84,6 +85,19 @@
 			<groupId>org.springframework.kafka</groupId>
 			<artifactId>spring-kafka-test</artifactId>
 			<scope>test</scope>
+		</dependency>
+
+		<!-- Restate -->
+		 <dependency>
+            <groupId>dev.restate</groupId>
+            <artifactId>sdk-spring-boot-starter</artifactId>
+            <version>2.6.0</version>
+        </dependency>
+
+		<dependency>
+			<groupId>dev.restate</groupId>
+			<artifactId>sdk-testing</artifactId>
+			<version>2.6.0</version>
 		</dependency>
 	</dependencies>
 
