@@ -1,8 +1,6 @@
 package com.example.transaction_service.workflow;
 
 
-import org.springframework.stereotype.Component;
-
 import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
 import com.example.transaction_service.service.TransactionService;
@@ -11,7 +9,6 @@ import dev.restate.sdk.annotation.Handler;
 // import dev.restate.sdk.annotation.Service;
 import dev.restate.sdk.springboot.RestateService;
 import dev.restate.sdk.Context;
-import dev.restate.sdk.Restate;
 
 @RestateService
 public class TransactionWorkflow {
@@ -23,7 +20,7 @@ public class TransactionWorkflow {
     }
 
     @Handler
-    public void run(Context ctx, CreateTransactionRequest request) {  // ✅ Context as first param
+    public void run(Context ctx, CreateTransactionRequest request) {
         Transaction tx = ctx.run(
             Transaction.class,
             () -> transactionService.createTransaction(request)

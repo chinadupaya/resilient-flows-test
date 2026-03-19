@@ -10,9 +10,9 @@ package "Microservices Level" {
   component "app2" as app2
   component "app3" as app3
 
-  component "<size:20><&book>App Log 1<&book></size>" as appLog1 #LightCoral
-  component "<size:20><&book>App Log 2<&book></size>" as appLog2 #LightCoral
-  component "<size:20><&book>App Log 3<&book></size>" as appLog3 #LightCoral
+  ' component "<size:20><&book>App Log 1<&book></size>" as appLog1 #LightCoral
+  ' component "<size:20><&book>App Log 2<&book></size>" as appLog2 #LightCoral
+  ' component "<size:20><&book>App Log 3<&book></size>" as appLog3 #LightCoral
 
   
 }
@@ -72,9 +72,9 @@ component "Other Listeners" as listeners
 ' App -> DurableState writes
 ' =========================
 
-app1 --> appLog1
-app2 --> appLog2
-app3 --> appLog3
+' app1 --> appLog1
+' app2 --> appLog2
+' app3 --> appLog3
 
 ' =========================
 ' App -> DB writes
@@ -121,8 +121,8 @@ kafka --> listeners
 ' =========================
 ' Workflow -> Apps
 ' =========================
-temporal <-- appLog1
-temporal <-- appLog2
-temporal <-- appLog3
+temporal <-- app1
+temporal <-- app2
+temporal <-- app3
 
 @enduml

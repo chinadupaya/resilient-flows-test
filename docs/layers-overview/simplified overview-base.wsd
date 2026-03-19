@@ -77,6 +77,12 @@ component "Other Listeners" as listeners
 ' app3 --> appLog3
 
 ' =========================
+' App -> App communication
+' =========================
+app1 <--> app2
+app2 <--> app3
+
+' =========================
 ' App -> DB writes
 ' =========================
 app1 --> db1
