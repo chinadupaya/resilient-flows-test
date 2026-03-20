@@ -47,6 +47,18 @@ services:
       retries: 55
     volumes:
       - postgres:/data
+  postgres-seed:
+    image: postgres:15.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+     - ./init.sql:/init.sql:ro
+    entrypoint: >
+      sh -c "psql -h postgres -U postgres -d account -f /init.sql"
+    environment:
+      PGPASSWORD: admin
+    restart: "no"
 
   # SHARED SERVICES
   # Kafka infrastructure

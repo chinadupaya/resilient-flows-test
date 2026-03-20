@@ -9,19 +9,24 @@ import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
 import com.example.transaction_service.model.dto.TransactionReservation;
 import com.example.transaction_service.service.TransactionService;
-
 import com.example.transaction_service.model.TransactionStatus;
 import com.example.transaction_service.model.TransactionType;
 
+import com.example.transaction_service.workflow.TransactionWorkflowClient;
+import dev.restate.client.Client;
 
 
 @RestController
 @RequestMapping("/api/v1/transactions")
 public class TransactionController {
     private final TransactionService transactionService;
+    private final Client restateClient;
 
-    public TransactionController(TransactionService transactionService) {
+    public TransactionController(TransactionService transactionService,
+        Client restateClient
+    ) {
         this.transactionService = transactionService;
+        this.restateClient = restateClient;
     }
 
     @GetMapping()
@@ -47,8 +52,9 @@ public class TransactionController {
 
         if(TransactionType.SYNC.name().equals(type)) {
             
-            Transaction transaction = transactionService.createTransaction(request);
-            
+            // Transaction transaction = transactionService.createTransaction(request);
+            System.out.println("logging transactionworkflow");
+            Transaction transaction = TransactionWorkflowClient.fromClient(restateClient).run(request);
             if (TransactionStatus.COMPLETED.name().equals(transaction.getStatus())) {
                 return ResponseEntity.status(HttpStatus.CREATED).body(transaction);
             } else {

@@ -28,7 +28,12 @@ server:
 accounts:
   service:
     url: http://localhost:7070
-
+restate:
+  sdk:
+    http:
+      port: 9091
+  client:
+    base-uri: http://localhost:8080
 management:
   endpoints:
     web:

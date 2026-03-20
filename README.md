@@ -19,6 +19,12 @@ We will be using the same API call `POST /transactions` but create an additional
 ## Failure Scenarios
 - One failure each for async and sync processes
 
+# Ports Overview (localhost)
+- Account service 7070
+- Transaction service 9090
+  - Restate connection port 9091
+- Restate
+
 # To Run locally:
 
 ## Requirements
@@ -27,6 +33,7 @@ We will be using the same API call `POST /transactions` but create an additional
 
 ## Running
 1. Go to `/infrastructure` and run `docker compose up -d`
+  - Initialization for transaction and account service is done automatically.
 2. Create the connectors from the same folder
 ```
 curl -X POST http://localhost:8083/connectors \
@@ -40,13 +47,6 @@ docker exec -it kafka kafka-console-consumer \
   --topic account.public.accounts \
   --from-beginning
 ```
-3. To put in dummy data and initialize the tables for the account-service, make sure the postgres container is running, go to `/accounts` and run in the terminal:
-```
-docker exec -i postgres-account \
-  psql -U postgres -d account < src/main/resources/db/init.sql
-```
-
-Initialization for transaction-service is done automatically.
 
 4. Run account service and transaction service from their directories.
 ```

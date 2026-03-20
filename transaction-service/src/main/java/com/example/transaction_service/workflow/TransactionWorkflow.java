@@ -1,8 +1,10 @@
 package com.example.transaction_service.workflow;
 
+import com.example.transaction_service.model.Transaction;
 import com.example.transaction_service.model.dto.CreateTransactionRequest;
 import com.example.transaction_service.service.TransactionService;
 
+import dev.restate.sdk.Context;
 import dev.restate.sdk.annotation.Handler;
 import dev.restate.sdk.springboot.RestateService;
 
@@ -16,7 +18,7 @@ public class TransactionWorkflow {
     }
 
     @Handler
-    public void run(CreateTransactionRequest request) {
-        transactionService.createTransaction(request);
+    public Transaction run(Context ctx, CreateTransactionRequest request) {
+        return ctx.run("Create Transaction", Transaction.class, () -> transactionService.createTransaction(request));
     }
 }
