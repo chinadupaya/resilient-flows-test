@@ -1,7 +1,6 @@
 package com.example.transaction_service.events;
 import java.math.BigDecimal;
 import java.util.UUID;
-import java.time.Instant;
 
 public record TransactionCompletedEvent(
         String eventType,

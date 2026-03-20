@@ -46,12 +46,12 @@
 		</dependency>
 
 		<!-- HOT RELOAD -->
-		<dependency>
+		<!-- <dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>
 			<optional>true</optional>
 		</dependency>
-		
+		 -->
 
 
 		<!-- OpenTelemetry -->
@@ -91,13 +91,15 @@
 		 <dependency>
             <groupId>dev.restate</groupId>
             <artifactId>sdk-spring-boot-starter</artifactId>
-            <version>2.6.0</version>
+            <version>${restate.version}</version>
         </dependency>
 
 		<dependency>
 			<groupId>dev.restate</groupId>
 			<artifactId>sdk-testing</artifactId>
-			<version>2.6.0</version>
+			<version>${restate.version}</version>
+			<scope>test</scope>
+
 		</dependency>
 	</dependencies>
 

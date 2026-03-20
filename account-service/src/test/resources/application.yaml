@@ -38,7 +38,7 @@ spring:
         spring.json.use.type.headers: false
 
 server:
-  port: 8080
+  port: 7070
 
 transactions:
   service:

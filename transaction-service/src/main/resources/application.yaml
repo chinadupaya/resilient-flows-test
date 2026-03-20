@@ -24,18 +24,19 @@ spring:
 server:
   port: 9090
   address: 0.0.0.0
+  http2:
+    enabled: true
 
 restate:
   sdk:
     http:
-      port: 9080
-
-
-
+      port: 9091
+  client:
+    base-uri: http://localhost:8080
 
 accounts:
   service:
-    url: http://localhost:8080
+    url: http://localhost:7070
 
 management:
   endpoints:

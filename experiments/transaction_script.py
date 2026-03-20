@@ -5,7 +5,7 @@ import signal
 import sys
 from threading import Event
 
-ACCOUNT_SERVICE_URL = "http://localhost:8080/api/v1/accounts"
+ACCOUNT_SERVICE_URL = "http://localhost:7070/api/v1/accounts"
 TRANSACTION_SERVICE_URL = "http://localhost:9090/api/v1/transactions"
 
 SYNC_MODE = "sync"
