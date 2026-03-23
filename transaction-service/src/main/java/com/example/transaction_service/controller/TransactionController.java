@@ -62,7 +62,7 @@ public class TransactionController {
             }
         } else if (TransactionType.ASYNC.name().equals(type)) {
             // Asynchronous flow - publish to Kafka and return accepted
-            Transaction transaction = transactionService.createTransactionInitial(request);
+            Transaction transaction = transactionService.createTransactioAsync(request);
 
             return ResponseEntity.status(HttpStatus.ACCEPTED)
                     .body(transaction); 

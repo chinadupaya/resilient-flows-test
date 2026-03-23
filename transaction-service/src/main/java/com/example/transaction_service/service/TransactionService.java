@@ -156,7 +156,106 @@ public class TransactionService {
             return fail(transaction, e.getMessage());
         }
     }
-    public Transaction createTransactionInitial(CreateTransactionRequest request) {
+    
+    public Transaction createInitialTransaction(CreateTransactionRequest request) {
+            Transaction transaction = new Transaction();
+            transaction.setSourceAccountId(request.getSourceAccountId().toString());
+            transaction.setDestinationAccountId(request.getDestinationAccountId().toString());
+            transaction.setAmount(request.getAmount());
+            transaction.setStatus(TransactionStatus.PENDING.name());
+            transaction.setSagaState(SagaState.STARTED.name());
+            transaction.setCreatedAt(Instant.now());
+            transaction.setUpdatedAt(Instant.now());
+
+            transactionRepository.save(transaction);
+
+            log.info("Transaction {} created with saga STARTED", transaction.getId());
+            transactionStartedCounter.increment();
+            return transaction;
+    }
+
+    public void markReservationRequested(String transactionId) {
+        Transaction transaction = getTransactionOrThrow(transactionId);
+        updateSagaState(
+                transaction,
+                SagaState.STARTED,
+                SagaState.ACCOUNT_RESERVATION_REQUESTED
+        );
+    }
+
+    public boolean reserveFunds(AccountReservationRequest reservationRequest) {
+        ResponseEntity<Void> reserveResponse = accountsRestClient.post()
+                .uri("/api/v1/accounts/reserve")
+                .body(reservationRequest)
+                .retrieve()
+                .toBodilessEntity();
+
+        return reserveResponse.getStatusCode().is2xxSuccessful();
+    }
+
+    public void markReservationSuccess(String transactionId) {
+        Transaction transaction = getTransactionOrThrow(transactionId);
+        updateSagaState(
+                transaction,
+                SagaState.ACCOUNT_RESERVATION_REQUESTED,
+                SagaState.ACCOUNT_RESERVATION_SUCCESS
+        );
+    }
+
+    public boolean checkCompliance(String transactionId) {
+        Transaction transaction = getTransactionOrThrow(transactionId);
+        return runComplianceChecks(transaction);
+    }
+
+    public void markCommitRequested(String transactionId) {
+        Transaction transaction = getTransactionOrThrow(transactionId);
+        updateSagaState(
+                transaction,
+                SagaState.ACCOUNT_RESERVATION_SUCCESS,
+                SagaState.ACCOUNT_COMMIT_REQUESTED
+        );
+    }
+
+    public boolean commitFunds(AccountReservationRequest reservationRequest) {
+        ResponseEntity<Void> commitResponse = accountsRestClient.post()
+                .uri("/api/v1/accounts/commit")
+                .body(reservationRequest)
+                .retrieve()
+                .toBodilessEntity();
+
+        return commitResponse.getStatusCode().is2xxSuccessful();
+    }
+
+    public void releaseFunds(String transactionId, AccountReservationRequest reservationRequest) {
+        Transaction transaction = getTransactionOrThrow(transactionId);
+        release(transaction, reservationRequest);
+    }
+
+    public Transaction completeTransaction(String transactionId) {
+        Transaction transaction = getTransactionOrThrow(transactionId);
+
+        updateSagaState(
+                transaction,
+                SagaState.ACCOUNT_COMMIT_REQUESTED,
+                SagaState.COMPLETED
+        );
+
+        transaction.setStatus(TransactionStatus.COMPLETED.name());
+        transaction.setUpdatedAt(Instant.now());
+        transactionRepository.save(transaction);
+
+        log.info("Transaction {} COMPLETED", transaction.getId());
+        transactionCompletedCounter.increment();
+
+        return transaction;
+    }
+
+    public Transaction failTransaction(String transactionId, String reason) {
+        Transaction transaction = getTransactionOrThrow(transactionId);
+        return fail(transaction, reason);
+    }
+            
+    public Transaction createTransactioAsync(CreateTransactionRequest request) {
         // Create transaction with STARTED saga, PENDING status - don't process
         Transaction transaction = new Transaction();
         transaction.setSourceAccountId(request.getSourceAccountId().toString());
@@ -281,6 +380,13 @@ public class TransactionService {
     private boolean runComplianceChecks(Transaction transaction) {
         // return false;
         return Math.random() > 0.3;
+    }
+
+    private Transaction getTransactionOrThrow(String transactionId) {
+        return transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Transaction not found: " + transactionId
+                ));
     }
 
     private void releaseFunds(Transaction tx, AccountReservationRequest request) {

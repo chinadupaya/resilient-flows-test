@@ -30,6 +30,7 @@ We will be using the same API call `POST /transactions` but create an additional
 ## Requirements
 - Docker, Docker compose
 - Java
+- Python
 
 ## Running
 1. Go to `/infrastructure` and run `docker compose up -d`
@@ -53,8 +54,16 @@ docker exec -it kafka kafka-console-consumer \
 mvn spring-boot:run
 ```
 
-5. Connect to Restate
+5. [Setup restate locally](https://docs.restate.dev/quickstart#homebrew-6) (following Homebrew/binary instructions) and start restate server
+```
+restate-server
+```
 
+
+6. Register service. Use the --force command only if developing locally and making changes
+```
+restate deployments register --use-http1.1 --yes http://localhost:9091 --force 
+```
 ### Other important commands:
 
 See all topics:

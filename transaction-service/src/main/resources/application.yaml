@@ -18,6 +18,10 @@ spring:
         fail-if-invalid-session: false
         emulator:
           enabled: true
+  devtools:
+    restart:
+      enabled: false
+      exclude: com/example/transaction_service/model/**,com/example/transaction_service/workflow/**
   kafka:
     bootstrap-servers: localhost:9092
 
