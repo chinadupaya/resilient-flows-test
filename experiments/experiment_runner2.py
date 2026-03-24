@@ -38,6 +38,11 @@ FAILURE_SCENARIOS = [
         "name": "Kafka failure",
         "failure_cmd": ["docker", "stop", "kafka"],
         "recovery_cmd": ["docker", "start", "kafka"],
+    },
+    {
+        "name": "Account service crash (local)",
+        "failure_cmd": ["pkill", "-f", "account-service"],
+        "recovery_cmd": ["bash", "-c", "cd ../account-service && mvn spring-boot:run &"],
     }
     # {
     #     "name": "Cascading: DB + Kafka",
@@ -47,6 +52,44 @@ FAILURE_SCENARIOS = [
     # },
 ]
 
+ACCOUNT_SERVICE_PROCESS = None
+def wait_for_account_service():
+    print("[CHAOS] Waiting for account service...")
+    for _ in range(60):
+        try:
+            r = requests.get("http://localhost:7070/api/v1/accounts")
+            if r.status_code == 200:
+                print("[CHAOS] Account service ready")
+                return
+        except:
+            pass
+        time.sleep(1)
+    raise RuntimeError("Account service did not start")
+def start_account_service():
+    global ACCOUNT_SERVICE_PROCESS
+    print("[CHAOS] Starting account service...")
+
+    log_file = open("account_service.log", "w")
+
+    ACCOUNT_SERVICE_PROCESS = subprocess.Popen(
+        ["mvn", "spring-boot:run"],
+        cwd="../account-service",
+        stdout=log_file,
+        stderr=log_file,
+        stdin=subprocess.DEVNULL
+    )
+    wait_for_account_service()
+    
+def stop_account_service():
+    global ACCOUNT_SERVICE_PROCESS
+    if ACCOUNT_SERVICE_PROCESS:
+        print("[CHAOS] Stopping account service...")
+        ACCOUNT_SERVICE_PROCESS.terminate()
+        try:
+            ACCOUNT_SERVICE_PROCESS.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            ACCOUNT_SERVICE_PROCESS.kill()
+        ACCOUNT_SERVICE_PROCESS = None
 def query_prometheus(metric: str) -> float:
     """Instant query - returns current value."""
     r = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params={"query": metric})
@@ -104,19 +147,25 @@ def inject_failure_after_delay(delay, scenario, stage_results):
         time.sleep(delay)
         failure_start = time.time()
         print(f"\n[CHAOS] Injecting: {scenario['name']}")
-        subprocess.run(scenario["failure_cmd"])
+
+        if scenario["name"] == "Account service crash (local)":
+            stop_account_service()
+        else:
+            subprocess.run(scenario["failure_cmd"])
 
         time.sleep(FAILURE_DURATION)
 
         print(f"\n[CHAOS] Recovering: {scenario['name']}")
-        subprocess.run(scenario["recovery_cmd"])
-        failure_end = time.time()
 
-        # Capture what happened during the failure window
+        if scenario["name"] == "Account service crash (local)":
+            start_account_service()
+        else:
+            subprocess.run(scenario["recovery_cmd"])
+
+        failure_end = time.time()
         stage_results["failure_window"] = capture_failure_window(failure_start, failure_end)
 
     threading.Thread(target=_inject, daemon=True).start()
-
 def query_actual_tps(window: str = "15s") -> dict:
     return {
         "completed_tps": query_prometheus(f"rate(transactions_completed_total[{window}])"),
@@ -255,7 +304,7 @@ def run_stage(account_ids, tps, duration, scenario=None, stage_results=None):
     delay = 1.0 / tps
     end_time = time.time() + duration
     if scenario and stage_results is not None:
-        inject_failure_after_delay(duration // 2, scenario, stage_results)  # fail halfway through
+        inject_failure_after_delay(duration * 0.7, scenario, stage_results)  # fail halfway through
 
     while time.time() < end_time and not stop_event.is_set():
         start = time.time()
@@ -279,6 +328,7 @@ def run_experiment(count, scenario):
     run_sql_init()
     run_spanner_init()
     time.sleep(3)
+    start_account_service()
     initial_accounts = get_accounts_full()
     account_ids = [a["id"] for a in initial_accounts]
 
@@ -288,8 +338,9 @@ def run_experiment(count, scenario):
                 scenario=scenario,
                 stage_results=stage_results)
 
-    time.sleep(10)
+    time.sleep(5)
     after = snapshot_metrics()
+    stop_account_service()
 
     # Print failure window timeline if available
     if "failure_window" in stage_results:
@@ -318,11 +369,17 @@ if __name__ == "__main__":
         result = run_experiment(i, TEST_SCENARIO)
         all_results.append(result)
 
-    # TEST_SCENARIO = FAILURE_SCENARIOS[2]
-    # print(f"Running experiment {TEST_SCENARIO['name']}")
-    # for i in range(exp_count):
-    #     result = run_experiment(i, TEST_SCENARIO)
-    #     all_results.append(result)
+    TEST_SCENARIO = FAILURE_SCENARIOS[2]
+    print(f"Running experiment {TEST_SCENARIO['name']}")
+    for i in range(exp_count):
+        result = run_experiment(i, TEST_SCENARIO)
+        all_results.append(result)
+
+    TEST_SCENARIO = FAILURE_SCENARIOS[3]
+    print(f"Running experiment {TEST_SCENARIO['name']}")
+    for i in range(exp_count):
+        result = run_experiment(i, TEST_SCENARIO)
+        all_results.append(result)
 
     
     fieldnames = all_results[0].keys()

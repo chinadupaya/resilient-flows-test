@@ -4,7 +4,8 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 public record AccountReleaseRequest(
-    UUID accountId,
     UUID transactionId,
+    UUID sourceAccountId,
+    UUID destinationAccountId,
     BigDecimal amount
 ) {}

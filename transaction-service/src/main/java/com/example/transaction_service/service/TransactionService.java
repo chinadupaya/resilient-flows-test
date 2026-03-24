@@ -145,7 +145,6 @@ public class TransactionService {
             transaction.setStatus(TransactionStatus.COMPLETED.name());
             transactionRepository.save(transaction);
 
-            // transaction.setVersion(transaction.getVersion() + 1);
             log.info("Transaction {} COMPLETED", transaction.getId());
             transactionCompletedCounter.increment();
             return transaction;
@@ -230,6 +229,7 @@ public class TransactionService {
         Transaction transaction = getTransactionOrThrow(transactionId);
         release(transaction, reservationRequest);
     }
+    
 
     public Transaction completeTransaction(String transactionId) {
         Transaction transaction = getTransactionOrThrow(transactionId);
@@ -381,19 +381,78 @@ public class TransactionService {
         fail(tx, "Cancelled after reservation request");
     }
 
-    public void compensateReservation(String transactionId, AccountReservationRequest request) {
-        releaseFunds(transactionId, request);
-    }
+    // public void compensateReservation(String transactionId, AccountReservationRequest request) {
+    //     releaseFunds(transactionId, request);
+    // }
 
-    public void compensateCommitRequested(String transactionId, AccountReservationRequest request) {
-        releaseFunds(transactionId, request);
-    }
+    // public void compensateCommitRequested(String transactionId, AccountReservationRequest request) {
+    //     releaseFunds(transactionId, request);
+    // }
 
-    public void compensateCommit(String transactionId) {
-        Transaction tx = getTransactionOrThrow(transactionId);
-        fail(tx, "Commit compensation executed");
+    // public void compensateCommit(String transactionId) {
+    //     Transaction tx = getTransactionOrThrow(transactionId);
+    //     fail(tx, "Commit compensation executed");
+    // }
+    public void compensateTransaction(String transactionId,
+                                  AccountReservationRequest request) {
+    Transaction tx = getTransactionOrThrow(transactionId);
+        compensate(tx, request);
     }
     // PRIVATE FUNCTIONS
+    private void compensate(Transaction tx, AccountReservationRequest request) {
+
+        SagaState state = SagaState.valueOf(tx.getSagaState());
+
+        try {
+            ResponseEntity<Void> response;
+
+            switch (state) {
+
+                case ACCOUNT_RESERVATION_SUCCESS:
+                case ACCOUNT_RESERVATION_REQUESTED:
+                    log.info("Compensation = RELEASE for {}", tx.getId());
+
+                    response = accountsRestClient.post()
+                            .uri("/api/v1/accounts/release")
+                            .body(request)
+                            .retrieve()
+                            .toBodilessEntity();
+                    break;
+
+                case ACCOUNT_COMMIT_REQUESTED:
+                case COMPLETED:
+                    log.info("Compensation = REFUND for {}", tx.getId());
+
+                    response = accountsRestClient.post()
+                            .uri("/api/v1/accounts/refund")
+                            .body(request)
+                            .retrieve()
+                            .toBodilessEntity();
+                    break;
+
+                default:
+                    log.warn("No compensation needed for state {}", state);
+                    return;
+            }
+
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                log.error("Compensation failed for {}", tx.getId());
+                return;
+            }
+
+            tx.setSagaState(SagaState.COMPENSATED.name());
+            tx.setStatus(TransactionStatus.FAILED.name());
+            tx.setUpdatedAt(Instant.now());
+            transactionRepository.save(tx);
+
+            transactionFailedCounter.increment();
+
+            log.info("Transaction {} compensated successfully", tx.getId());
+
+        } catch (Exception e) {
+            log.error("Compensation error for {}: {}", tx.getId(), e.getMessage());
+        }
+    }
     private boolean runComplianceChecks(Transaction transaction) {
         // return false;
         return Math.random() > 0.3;
@@ -482,14 +541,15 @@ public class TransactionService {
         transaction.setFailureReason(reason);
         transactionRepository.save(transaction);
 
-        TransactionFailedEvent event =
-                new TransactionFailedEvent(
+        AccountReservationRequest request =
+                new AccountReservationRequest(
                         UUID.fromString(transaction.getId()),
                         UUID.fromString(transaction.getSourceAccountId()),
-                        transaction.getAmount(),
-                        reason);
+                        UUID.fromString(transaction.getDestinationAccountId()),
+                        transaction.getAmount()
+                );
 
-        transactionProducer.publishTransactionFailed(event);
+        compensate(transaction, request);
     }
 
     private boolean updateSagaState(

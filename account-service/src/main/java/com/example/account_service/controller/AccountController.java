@@ -127,15 +127,15 @@ public class AccountController {
         } catch (InsufficientBalanceException e) {
             log.warn("Cannot release, insufficient reserved amount: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(AccountReleaseResponse.failure(request.transactionId(), request.accountId(), request.amount(), e.getMessage()));
+                .body(AccountReleaseResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         } catch (AccountNotFoundException e) {
             log.error("Account not found: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(AccountReleaseResponse.failure(request.transactionId(), request.accountId(), request.amount(), e.getMessage()));
+                .body(AccountReleaseResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         } catch (Exception e) {
             log.error("Error rolling back reservation", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(AccountReleaseResponse.failure(request.transactionId(), request.accountId(), request.amount(), e.getMessage()));
+                .body(AccountReleaseResponse.failure(request.transactionId(), request.sourceAccountId(), request.amount(), e.getMessage()));
         }
     }
 

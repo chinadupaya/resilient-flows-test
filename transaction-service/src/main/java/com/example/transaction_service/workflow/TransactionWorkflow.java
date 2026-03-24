@@ -27,8 +27,6 @@ public class TransactionWorkflow {
     @Handler
     public Transaction run(Context ctx, CreateTransactionRequest request) throws TerminalException {
 
-        List<Runnable> compensations = new ArrayList<>();
-
         Transaction transaction = ctx.run("initiate txn", Transaction.class,
                 () -> transactionService.createInitialTransaction(request));
 
@@ -44,11 +42,6 @@ public class TransactionWorkflow {
             ctx.run("mark reservation requested",
                     () -> transactionService.markReservationRequested(transaction.getId()));
 
-            compensations.add(() ->
-                    ctx.run("cancel reservation request",
-                            () -> transactionService.cancelReservationRequested(transaction.getId()))
-            );
-
             // STEP 2 — Reserve funds
             boolean reserved = ctx.run("reserve funds", Boolean.class,
                     () -> transactionService.reserveFunds(reservationRequest));
@@ -60,14 +53,7 @@ public class TransactionWorkflow {
             ctx.run("mark reservation success",
                     () -> transactionService.markReservationSuccess(transaction.getId()));
 
-            // STEP 3 — Compensation AFTER successful reservation
-            compensations.add(() ->
-                    ctx.run("release funds",
-                            () -> transactionService.compensateReservation(
-                                    transaction.getId(), reservationRequest))
-            );
-
-            // STEP 4 — Compliance
+            // STEP 3 — Compliance
             boolean compliant = ctx.run("compliance check", Boolean.class,
                     () -> transactionService.checkCompliance(transaction.getId()));
 
@@ -75,17 +61,11 @@ public class TransactionWorkflow {
                 throw new TerminalException("Compliance failed");
             }
 
-            // STEP 5 — Commit requested
+            // STEP 4 — Commit requested
             ctx.run("mark commit requested",
                     () -> transactionService.markCommitRequested(transaction.getId()));
 
-            compensations.add(() ->
-                    ctx.run("cancel commit request",
-                            () -> transactionService.compensateCommitRequested(
-                                    transaction.getId(), reservationRequest))
-            );
-
-            // STEP 6 — Commit funds
+            // STEP 5 — Commit funds
             boolean committed = ctx.run("commit funds", Boolean.class,
                     () -> transactionService.commitFunds(reservationRequest));
 
@@ -93,30 +73,25 @@ public class TransactionWorkflow {
                 throw new TerminalException("Commit failed");
             }
 
-            compensations.add(() ->
-                    ctx.run("cancel commit",
-                            () -> transactionService.compensateCommit(transaction.getId()))
-            );
-
-            // STEP 7 — Complete transaction
+            // STEP 6 — Complete transaction
             return ctx.run("complete transaction", Transaction.class,
                     () -> transactionService.completeTransaction(transaction.getId()));
 
         } catch (TerminalException e) {
 
-            // Execute compensations in reverse order
-            for (int i = compensations.size() - 1; i >= 0; i--) {
-                compensations.get(i).run();
-            }
+            // SINGLE compensation call
+            ctx.run("compensate transaction",
+                    () -> transactionService.compensateTransaction(
+                            transaction.getId(), reservationRequest));
 
             ctx.run("mark failed",
-                    () -> transactionService.failTransaction(transaction.getId(), e.getMessage()));
+                    () -> transactionService.failTransaction(
+                            transaction.getId(), e.getMessage()));
 
             throw e;
         }
     }
 }
-
 // @RestateService
 // public class TransactionWorkflow {
 

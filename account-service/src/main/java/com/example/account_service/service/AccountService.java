@@ -166,14 +166,19 @@ public class AccountService {
     @Transactional
     public AccountReleaseResponse releaseReservationSync(AccountReleaseRequest request) {
         log.info("Processing SYNC release for transaction {}", request.transactionId());
-        
+
         try {
-            return doRelease(request.accountId(), request.amount(), request.transactionId());
+            return doRelease(
+                request.sourceAccountId(),
+                request.amount(),
+                request.transactionId()
+            );
         } catch (AccountNotFoundException | InsufficientBalanceException e) {
             log.error("Release failed for transaction {}: {}", request.transactionId(), e.getMessage());
+
             return AccountReleaseResponse.failure(
                 request.transactionId(),
-                request.accountId(),
+                request.sourceAccountId(),
                 request.amount(),
                 e.getMessage()
             );
@@ -362,34 +367,38 @@ public class AccountService {
         );
     }
 
-    private AccountReleaseResponse doRelease(UUID accountId,
+    private AccountReleaseResponse doRelease(UUID sourceAccountId,
                                          BigDecimal amount,
                                          UUID transactionId) {
 
-        Account account = accountRepository.findByIdWithLock(accountId)
-                .orElseThrow(() -> new AccountNotFoundException(
-                    "Account not found: " + accountId));
+    Account account = accountRepository.findByIdWithLock(sourceAccountId)
+            .orElseThrow(() -> new AccountNotFoundException(
+                "Account not found: " + sourceAccountId));
 
-        if (account.getReservedAmount().compareTo(amount) < 0) {
-            log.warn("Release called but reserved amount lower than requested. Fixing drift.");
+    BigDecimal reserved = account.getReservedAmount();
 
-            amount = account.getReservedAmount(); // release whatever remains
-        }
-
-        account.setReservedAmount(account.getReservedAmount().subtract(amount));
-        accountRepository.save(account);
-
-        BigDecimal availableBalance =
-            account.getBalance().subtract(account.getReservedAmount());
-
-        return AccountReleaseResponse.success(
-            transactionId,
-            account.getId(),
-            amount,
-            availableBalance
-        );
+    if (reserved.compareTo(BigDecimal.ZERO) == 0) {
+        log.info("Release called but nothing reserved for account {}", sourceAccountId);
     }
 
+    if (reserved.compareTo(amount) < 0) {
+        log.warn("Release amount greater than reserved. Fixing drift.");
+        amount = reserved;
+    }
+
+    account.setReservedAmount(reserved.subtract(amount));
+    accountRepository.save(account);
+
+    BigDecimal availableBalance =
+        account.getBalance().subtract(account.getReservedAmount());
+
+    return AccountReleaseResponse.success(
+        transactionId,
+        account.getId(),
+        amount,
+        availableBalance
+    );
+}
     private AccountRefundResponse doRefund(UUID sourceAccountId,
                                        UUID destinationAccountId,
                                        BigDecimal amount,

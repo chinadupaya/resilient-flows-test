@@ -52,9 +52,9 @@ public class TransactionController {
 
         if(TransactionType.SYNC.name().equals(type)) {
             
-            // Transaction transaction = transactionService.createTransaction(request);
+            Transaction transaction = transactionService.createTransaction(request);
             System.out.println("logging transactionworkflow");
-            Transaction transaction = TransactionWorkflowClient.fromClient(restateClient).run(request);
+            // Transaction transaction = TransactionWorkflowClient.fromClient(restateClient).run(request);
             if (TransactionStatus.COMPLETED.name().equals(transaction.getStatus())) {
                 return ResponseEntity.status(HttpStatus.CREATED).body(transaction);
             } else {
