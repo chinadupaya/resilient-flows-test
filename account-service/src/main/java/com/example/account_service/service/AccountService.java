@@ -25,6 +25,8 @@ import com.example.account_service.exception.InsufficientBalanceException;
 import com.example.account_service.model.Account;
 import com.example.account_service.model.dto.AccountCommitRequest;
 import com.example.account_service.model.dto.AccountCommitResponse;
+import com.example.account_service.model.dto.AccountRefundRequest;
+import com.example.account_service.model.dto.AccountRefundResponse;
 import com.example.account_service.model.dto.AccountReleaseRequest;
 import com.example.account_service.model.dto.AccountReleaseResponse;
 import com.example.account_service.model.dto.AccountReservationRequest;
@@ -272,6 +274,30 @@ public class AccountService {
         }
     }
 
+    @Transactional
+    public AccountRefundResponse refundCommitSync(AccountRefundRequest request) {
+        log.info("Processing REFUND for transaction {}", request.transactionId());
+
+        try {
+            return doRefund(
+                request.sourceAccountId(),
+                request.destinationAccountId(),
+                request.amount(),
+                request.transactionId()
+            );
+        } catch (AccountNotFoundException | InsufficientBalanceException e) {
+            log.error("Refund failed for transaction {}: {}", request.transactionId(), e.getMessage());
+
+            return AccountRefundResponse.failure(
+                request.transactionId(),
+                request.sourceAccountId(),
+                request.destinationAccountId(),
+                request.amount(),
+                e.getMessage()
+            );
+        }
+    }
+
     // ============================================================================
     // Used by both sync and async
     // ============================================================================
@@ -336,27 +362,65 @@ public class AccountService {
         );
     }
 
-    private AccountReleaseResponse doRelease(UUID accountId, BigDecimal amount, UUID transactionId) {
+    private AccountReleaseResponse doRelease(UUID accountId,
+                                         BigDecimal amount,
+                                         UUID transactionId) {
+
         Account account = accountRepository.findByIdWithLock(accountId)
                 .orElseThrow(() -> new AccountNotFoundException(
                     "Account not found: " + accountId));
 
         if (account.getReservedAmount().compareTo(amount) < 0) {
-            throw new InsufficientBalanceException(
-                "Cannot release more than reserved. Reserved: " + account.getReservedAmount() 
-                + ", Requested: " + amount);
+            log.warn("Release called but reserved amount lower than requested. Fixing drift.");
+
+            amount = account.getReservedAmount(); // release whatever remains
         }
 
         account.setReservedAmount(account.getReservedAmount().subtract(amount));
         accountRepository.save(account);
 
-        BigDecimal availableBalance = account.getBalance().subtract(account.getReservedAmount());
+        BigDecimal availableBalance =
+            account.getBalance().subtract(account.getReservedAmount());
 
         return AccountReleaseResponse.success(
             transactionId,
             account.getId(),
             amount,
             availableBalance
+        );
+    }
+
+    private AccountRefundResponse doRefund(UUID sourceAccountId,
+                                       UUID destinationAccountId,
+                                       BigDecimal amount,
+                                       UUID transactionId) {
+
+        Account sourceAccount = accountRepository.findByIdWithLock(sourceAccountId)
+                .orElseThrow(() -> new AccountNotFoundException(
+                    "Source account not found: " + sourceAccountId));
+
+        Account destAccount = accountRepository.findByIdWithLock(destinationAccountId)
+                .orElseThrow(() -> new AccountNotFoundException(
+                    "Destination account not found: " + destinationAccountId));
+
+        if (destAccount.getBalance().compareTo(amount) < 0) {
+            throw new InsufficientBalanceException(
+                "Destination account has insufficient balance for refund");
+        }
+
+        // Remove from destination
+        destAccount.setBalance(destAccount.getBalance().subtract(amount));
+        accountRepository.save(destAccount);
+
+        // Return to source
+        sourceAccount.setBalance(sourceAccount.getBalance().add(amount));
+        accountRepository.save(sourceAccount);
+
+        return AccountRefundResponse.success(
+            transactionId,
+            sourceAccountId,
+            destinationAccountId,
+            amount
         );
     }
 }

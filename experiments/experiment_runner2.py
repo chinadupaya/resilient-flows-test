@@ -5,6 +5,7 @@ import subprocess
 import threading
 import datetime
 import csv
+import string
 
 PROMETHEUS_URL = "http://localhost:9095"
 ACCOUNT_SERVICE_URL = "http://localhost:7070/api/v1/accounts"
@@ -183,7 +184,10 @@ def create_transaction(source, destination, amount):
         "amount": amount,
         "type": SYNC_MODE
     }
-    requests.post(TRANSACTION_SERVICE_URL, json=payload)
+    headers = {
+        "idempotency-key": ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(8)) 
+    }
+    requests.post(TRANSACTION_SERVICE_URL, json=payload, headers=headers)
 
 def get_transactions():
     r = requests.get(TRANSACTION_SERVICE_URL)

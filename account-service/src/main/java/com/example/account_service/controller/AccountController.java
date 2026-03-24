@@ -17,13 +17,13 @@ import com.example.account_service.model.Account;
 import com.example.account_service.model.dto.AccountReleaseResponse;
 import com.example.account_service.model.dto.AccountReservationResponse;
 import com.example.account_service.model.dto.AccountCommitResponse;
+import com.example.account_service.model.dto.AccountRefundRequest;
+import com.example.account_service.model.dto.AccountRefundResponse;
 import com.example.account_service.model.dto.AccountReleaseRequest;
 import com.example.account_service.model.dto.AccountReservationRequest;
 import com.example.account_service.model.dto.AccountCommitRequest;
 import com.example.account_service.exception.InsufficientBalanceException;
 import com.example.account_service.exception.AccountNotFoundException;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 
 
 @Slf4j
@@ -57,6 +57,18 @@ public class AccountController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @PostMapping("/refund")
+    public ResponseEntity<AccountRefundResponse> refund(@RequestBody AccountRefundRequest request) {
+        try {
+            AccountRefundResponse response = accountService.refundCommitSync(request);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(AccountRefundResponse.failure(request.transactionId(), request.sourceAccountId(), request.destinationAccountId(), request.amount(), e.getMessage()));
+
+        }
+    }
+    
 
     @PostMapping("/reserve")
     public ResponseEntity<AccountReservationResponse> reserveAmount(

@@ -376,6 +376,23 @@ public class TransactionService {
             ))
             .toList();
     }
+    public void cancelReservationRequested(String transactionId) {
+        Transaction tx = getTransactionOrThrow(transactionId);
+        fail(tx, "Cancelled after reservation request");
+    }
+
+    public void compensateReservation(String transactionId, AccountReservationRequest request) {
+        releaseFunds(transactionId, request);
+    }
+
+    public void compensateCommitRequested(String transactionId, AccountReservationRequest request) {
+        releaseFunds(transactionId, request);
+    }
+
+    public void compensateCommit(String transactionId) {
+        Transaction tx = getTransactionOrThrow(transactionId);
+        fail(tx, "Commit compensation executed");
+    }
     // PRIVATE FUNCTIONS
     private boolean runComplianceChecks(Transaction transaction) {
         // return false;
