@@ -112,12 +112,16 @@ public class TransactionService {
                 return transaction;
             }
 
+            chaosPoint("AFTER_RESERVE");
+
             log.info("Account reservation succeeded for transaction {}", transaction.getId());
 
             if (!runComplianceChecks(transaction)) {
                 releaseFunds(transaction, reservationRequest);
                 return transaction;
             }
+
+            chaosPoint("AFTER_COMPLIANCE");
 
 
             log.info("Calling accounts service to commit transaction {}", transaction.getId());
@@ -136,6 +140,7 @@ public class TransactionService {
                 release(transaction, reservationRequest);
                 return fail(transaction, "Account commit failed");
             }
+            chaosPoint("AFTER_COMMIT");
 
             if (!updateSagaState(transaction,
                     SagaState.ACCOUNT_COMMIT_REQUESTED,
@@ -572,4 +577,12 @@ public class TransactionService {
 
         return true;
     }
+
+    private void chaosPoint(String name) {
+    String chaos = System.getenv("CHAOS_POINT");
+    if (chaos != null && chaos.equals(name)) {
+        log.error("CHAOS: crashing at {}", name);
+        Runtime.getRuntime().halt(1);
+    }
+}
 }

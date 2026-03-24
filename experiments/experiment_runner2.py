@@ -6,6 +6,7 @@ import threading
 import datetime
 import csv
 import string
+import os
 
 PROMETHEUS_URL = "http://localhost:9095"
 ACCOUNT_SERVICE_URL = "http://localhost:7070/api/v1/accounts"
@@ -30,11 +31,6 @@ FAILURE_SCENARIOS = [
         "recovery_cmd": ["docker", "start", "postgres-account"],
     },
     {
-        "name": "Transaction service failure",
-        "failure_cmd": ["docker", "stop", "spanner-transaction"],
-        "recovery_cmd": ["docker", "start", "spanner-transaction"],
-    },
-    {
         "name": "Kafka failure",
         "failure_cmd": ["docker", "stop", "kafka"],
         "recovery_cmd": ["docker", "start", "kafka"],
@@ -43,6 +39,11 @@ FAILURE_SCENARIOS = [
         "name": "Account service crash (local)",
         "failure_cmd": ["pkill", "-f", "account-service"],
         "recovery_cmd": ["bash", "-c", "cd ../account-service && mvn spring-boot:run &"],
+    },
+    {
+        "name": "Transaction service crash (local)",
+        "failure_cmd": ["pkill", "-f", "account-service"],
+        "recovery_cmd": ["bash", "-c", "cd ../transaction-service && mvn spring-boot:run &"],
     }
     # {
     #     "name": "Cascading: DB + Kafka",
@@ -53,36 +54,52 @@ FAILURE_SCENARIOS = [
 ]
 
 ACCOUNT_SERVICE_PROCESS = None
-def wait_for_account_service():
-    print("[CHAOS] Waiting for account service...")
+TRANSACTION_SERVICE_PROCESS = None
+def wait_for_service(service):
+    print(f"[CHAOS] Waiting for {service} service...")
     for _ in range(60):
         try:
-            r = requests.get("http://localhost:7070/api/v1/accounts")
+            r = None
+            if service=='account':
+                r = requests.get("http://localhost:7070/api/v1/accounts")
+            elif service=='transaction':
+                r = requests.get("http://localhost:9090/api/v1/transactions")
             if r.status_code == 200:
-                print("[CHAOS] Account service ready")
+                print(f"[CHAOS] {service} service ready")
                 return
         except:
             pass
         time.sleep(1)
-    raise RuntimeError("Account service did not start")
-def start_account_service():
+    raise RuntimeError("{service} service did not start")
+def start_service(service, chaos_point=None):
     global ACCOUNT_SERVICE_PROCESS
-    print("[CHAOS] Starting account service...")
+    global TRANSACTION_SERVICE_PROCESS
+    print(f"[CHAOS] Starting {service} service...")
 
-    log_file = open("account_service.log", "w")
-
-    ACCOUNT_SERVICE_PROCESS = subprocess.Popen(
-        ["mvn", "spring-boot:run"],
-        cwd="../account-service",
-        stdout=log_file,
-        stderr=log_file,
-        stdin=subprocess.DEVNULL
-    )
-    wait_for_account_service()
+    log_file = open(f"{service}_service.log", "w")
+    if service == 'account':
+        ACCOUNT_SERVICE_PROCESS = subprocess.Popen(
+            ["mvn", "spring-boot:run"],
+            cwd="../account-service",
+            stdout=log_file,
+            stderr=log_file,
+            stdin=subprocess.DEVNULL
+        )
+    elif service == 'transaction':
+        TRANSACTION_SERVICE_PROCESS = subprocess.Popen(
+            ["mvn", "spring-boot:run"],
+            cwd="../transaction-service",
+            stdout=log_file,
+            stderr=log_file,
+            stdin=subprocess.DEVNULL,
+            env={**os.environ, "CHAOS_POINT": "AFTER_RESERVE"}
+        )
+    wait_for_service(service)
     
-def stop_account_service():
+def stop_service(service):
     global ACCOUNT_SERVICE_PROCESS
-    if ACCOUNT_SERVICE_PROCESS:
+    global TRANSACTION_SERVICE_PROCESS
+    if ACCOUNT_SERVICE_PROCESS and service == 'account':
         print("[CHAOS] Stopping account service...")
         ACCOUNT_SERVICE_PROCESS.terminate()
         try:
@@ -90,6 +107,15 @@ def stop_account_service():
         except subprocess.TimeoutExpired:
             ACCOUNT_SERVICE_PROCESS.kill()
         ACCOUNT_SERVICE_PROCESS = None
+    elif TRANSACTION_SERVICE_PROCESS and service == 'transaction':
+        print("[CHAOS] Stopping transaction service...")
+        TRANSACTION_SERVICE_PROCESS.terminate()
+        try:
+            TRANSACTION_SERVICE_PROCESS.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            TRANSACTION_SERVICE_PROCESS.kill()
+        TRANSACTION_SERVICE_PROCESS = None
+
 def query_prometheus(metric: str) -> float:
     """Instant query - returns current value."""
     r = requests.get(f"{PROMETHEUS_URL}/api/v1/query", params={"query": metric})
@@ -149,7 +175,9 @@ def inject_failure_after_delay(delay, scenario, stage_results):
         print(f"\n[CHAOS] Injecting: {scenario['name']}")
 
         if scenario["name"] == "Account service crash (local)":
-            stop_account_service()
+            stop_service('account')
+        elif scenario["name"] == "Transaction service crash (local)":
+            stop_service('transaction')
         else:
             subprocess.run(scenario["failure_cmd"])
 
@@ -158,7 +186,9 @@ def inject_failure_after_delay(delay, scenario, stage_results):
         print(f"\n[CHAOS] Recovering: {scenario['name']}")
 
         if scenario["name"] == "Account service crash (local)":
-            start_account_service()
+            start_service('account')
+        elif scenario["name"] == "Transaction service crash (local)":
+            start_service('transaction')
         else:
             subprocess.run(scenario["recovery_cmd"])
 
@@ -264,7 +294,7 @@ def check_consistency(initial_accounts, before_snapshot: dict, after_snapshot: d
     reservation_drift=abs(final_total["reserved"]-initial_total["reserved"])
     stuck = [a for a in final_accounts if a["reservedAmount"] > 0]
     transactions_stuck = abs(diff['started'] - (diff['completed'] + diff['failed']))
-    transactions_stuck_rate = transactions_stuck / after_snapshot['started']
+    transactions_stuck_rate = transactions_stuck / (after_snapshot['started'] + 0.001)
 
     if stuck:
         print("\nStuck reservation details:")
@@ -328,7 +358,10 @@ def run_experiment(count, scenario):
     run_sql_init()
     run_spanner_init()
     time.sleep(3)
-    start_account_service()
+
+    start_service('account')
+    start_service('transaction')
+
     initial_accounts = get_accounts_full()
     account_ids = [a["id"] for a in initial_accounts]
 
@@ -340,7 +373,9 @@ def run_experiment(count, scenario):
 
     time.sleep(5)
     after = snapshot_metrics()
-    stop_account_service()
+
+    stop_service('account')
+    stop_service('transaction')
 
     # Print failure window timeline if available
     if "failure_window" in stage_results:
@@ -369,12 +404,18 @@ if __name__ == "__main__":
         result = run_experiment(i, TEST_SCENARIO)
         all_results.append(result)
 
-    TEST_SCENARIO = FAILURE_SCENARIOS[2]
+    TEST_SCENARIO = FAILURE_SCENARIOS[1]
     print(f"Running experiment {TEST_SCENARIO['name']}")
     for i in range(exp_count):
         result = run_experiment(i, TEST_SCENARIO)
         all_results.append(result)
 
+    TEST_SCENARIO = FAILURE_SCENARIOS[2]
+    print(f"Running experiment {TEST_SCENARIO['name']}")
+    for i in range(exp_count):
+        result = run_experiment(i, TEST_SCENARIO)
+        all_results.append(result)
+        
     TEST_SCENARIO = FAILURE_SCENARIOS[3]
     print(f"Running experiment {TEST_SCENARIO['name']}")
     for i in range(exp_count):
