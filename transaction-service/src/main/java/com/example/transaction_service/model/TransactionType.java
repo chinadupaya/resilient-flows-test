@@ -2,5 +2,6 @@ package com.example.transaction_service.model;
 
 public enum TransactionType {
     SYNC,
-    ASYNC
+    ASYNC,
+    SYNCV2
 }

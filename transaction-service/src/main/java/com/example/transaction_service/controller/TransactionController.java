@@ -53,8 +53,15 @@ public class TransactionController {
         if(TransactionType.SYNC.name().equals(type)) {
             
             Transaction transaction = transactionService.createTransaction(request);
-            System.out.println("logging transactionworkflow");
             // Transaction transaction = TransactionWorkflowClient.fromClient(restateClient).run(request);
+            if (TransactionStatus.COMPLETED.name().equals(transaction.getStatus())) {
+                return ResponseEntity.status(HttpStatus.CREATED).body(transaction);
+            } else {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(transaction);
+            }
+        } else if (TransactionType.SYNCV2.name().equals(type)) {
+            System.out.println("logging transactionworkflow");
+            Transaction transaction = TransactionWorkflowClient.fromClient(restateClient).run(request);
             if (TransactionStatus.COMPLETED.name().equals(transaction.getStatus())) {
                 return ResponseEntity.status(HttpStatus.CREATED).body(transaction);
             } else {
