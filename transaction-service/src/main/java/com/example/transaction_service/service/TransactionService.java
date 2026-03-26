@@ -103,7 +103,9 @@ public class TransactionService {
                     .toBodilessEntity();
 
             if (!reserveResponse.getStatusCode().is2xxSuccessful()) {
-                return fail(transaction, "Account reservation failed");
+                Transaction t = fail(transaction, "Account reservation failed");
+                transactionFailedCounter.increment();
+                return t;
             }
 
             if (!updateSagaState(transaction,
@@ -138,7 +140,9 @@ public class TransactionService {
 
             if (!commitResponse.getStatusCode().is2xxSuccessful()) {
                 release(transaction, reservationRequest);
-                return fail(transaction, "Account commit failed");
+                Transaction t = fail(transaction, "Account commit failed");
+                transactionFailedCounter.increment();
+                return t;
             }
             chaosPoint("AFTER_COMMIT");
 
@@ -157,7 +161,9 @@ public class TransactionService {
         } catch (Exception e) {
             log.error("Error processing transaction {}: {}", transaction.getId(), e.getMessage());
                 release(transaction, reservationRequest);
-            return fail(transaction, e.getMessage());
+            Transaction t = fail(transaction, e.getMessage());
+            transactionFailedCounter.increment();
+            return t;
         }
     }
     
@@ -257,6 +263,7 @@ public class TransactionService {
 
     public Transaction failTransaction(String transactionId, String reason) {
         Transaction transaction = getTransactionOrThrow(transactionId);
+        transactionFailedCounter.increment();
         return fail(transaction, reason);
     }
             
@@ -312,6 +319,7 @@ public class TransactionService {
 
         // Check if reservation was successful
         if (!"SUCCESS".equals(event.status())) {
+            transactionFailedCounter.increment();
             fail(transaction, "Account reservation failed: " + event.message());
             return;
         }
@@ -386,18 +394,6 @@ public class TransactionService {
         fail(tx, "Cancelled after reservation request");
     }
 
-    // public void compensateReservation(String transactionId, AccountReservationRequest request) {
-    //     releaseFunds(transactionId, request);
-    // }
-
-    // public void compensateCommitRequested(String transactionId, AccountReservationRequest request) {
-    //     releaseFunds(transactionId, request);
-    // }
-
-    // public void compensateCommit(String transactionId) {
-    //     Transaction tx = getTransactionOrThrow(transactionId);
-    //     fail(tx, "Commit compensation executed");
-    // }
     public void compensateTransaction(String transactionId,
                                   AccountReservationRequest request) {
     Transaction tx = getTransactionOrThrow(transactionId);
@@ -450,7 +446,7 @@ public class TransactionService {
             tx.setUpdatedAt(Instant.now());
             transactionRepository.save(tx);
 
-            transactionFailedCounter.increment();
+            // transactionFailedCounter.increment();
 
             log.info("Transaction {} compensated successfully", tx.getId());
 
@@ -497,12 +493,6 @@ public class TransactionService {
                 return;
             }
 
-            tx.setStatus(TransactionStatus.FAILED.name());
-            tx.setUpdatedAt(Instant.now());
-            transactionRepository.save(tx);
-
-            transactionFailedCounter.increment();
-
             log.info("Transaction {} compensated successfully", tx.getId());
 
         } catch (Exception e) {
@@ -527,10 +517,9 @@ public class TransactionService {
         transaction.setStatus(TransactionStatus.FAILED.name());
         transaction.setFailureReason(reason);
         transaction.setUpdatedAt(Instant.now());
-        // transaction.setVersion(transaction.getVersion() + 1);
         transactionRepository.save(transaction);
         log.info("Transaction {} FAILED: {}", transaction.getId(), reason);
-        transactionFailedCounter.increment();
+        // transactionFailedCounter.increment();
         return transaction;
     }
 

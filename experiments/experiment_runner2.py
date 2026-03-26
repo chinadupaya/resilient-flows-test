@@ -15,8 +15,8 @@ TRANSACTION_SERVICE_URL = "http://localhost:9090/api/v1/transactions"
 SYNC_MODE = "SYNC" # [SYNC, ASYNC, SYNCV2]
 
 FAILURE_STAGE_INDEX = 2
-FAILURE_DURATION = 5
-RECOVERY_TIME = 10   # time for Restate replay / service warmup
+FAILURE_DURATION = 3
+RECOVERY_TIME = 5   # time for Restate replay / service warmup
 PAUSE_TRAFFIC_DURING_FAILURE = True
 stop_event = threading.Event()
 
@@ -53,6 +53,14 @@ FAILURE_SCENARIOS = [
 
 ACCOUNT_SERVICE_PROCESS = None
 TRANSACTION_SERVICE_PROCESS = None
+def split_accounts_into_groups(accounts, group_size=5):
+    account_ids = [a["id"] for a in accounts]
+    groups = []
+
+    for i in range(0, len(account_ids), group_size):
+        groups.append(account_ids[i:i + group_size])
+
+    return groups
 def wait_for_service(service):
     print(f" Waiting for {service} service...")
     for _ in range(60):
@@ -194,7 +202,8 @@ def inject_failure_after_delay(delay, scenario, stage_results):
         if scenario["name"] == "Account service crash (local)":
             start_service('account')
         elif "Transaction service crash (local)" in scenario["name"]:
-            start_service('transaction', chaos_point=scenario.get("chaos_point"))
+            print("Restarting transaction service WITHOUT chaos point")
+            start_service('transaction')
         else:
             subprocess.run(scenario["recovery_cmd"])
 
@@ -209,12 +218,6 @@ def inject_failure_after_delay(delay, scenario, stage_results):
         stage_results["failure_window"] = capture_failure_window(failure_start, failure_end)
 
     threading.Thread(target=_inject, daemon=True).start()
-def query_actual_tps(window: str = "15s") -> dict:
-    return {
-        "completed_tps": query_prometheus(f"rate(transactions_completed_total[{window}])"),
-        "failed_tps":    query_prometheus(f"rate(transactions_failed_total[{window}])"),
-        "started_tps":   query_prometheus(f"rate(transactions_started_total[{window}])"),
-    }
 
 # Commands
 def run_sql_init():
@@ -281,6 +284,9 @@ def create_transaction(source, destination, amount):
     }
     requests.post(TRANSACTION_SERVICE_URL, json=payload, headers=headers)
 
+def reconcile_accounts():
+    return requests.post(f"{ACCOUNT_SERVICE_URL}/reconcile")
+
 def get_transactions():
     r = requests.get(TRANSACTION_SERVICE_URL)
     r.raise_for_status()
@@ -292,12 +298,11 @@ def calculate_total_money(accounts):
         "reserved": sum(a["reservedAmount"] for a in accounts)
     }
 
-def check_consistency(initial_accounts, before_time, after_time):
+def check_consistency(initial_accounts, before_time, after_time, account_ids):
     duration = int(after_time - before_time)
     diff = get_experiment_metrics(duration)
-    # actual_tps = query_actual_tps()
 
-    final_accounts = get_accounts_full()
+    final_accounts = [a for a in get_accounts_full() if a["id"] in account_ids]
     initial_total = calculate_total_money(initial_accounts)
     final_total = calculate_total_money(final_accounts)
     print("initial_total", initial_total)
@@ -316,10 +321,10 @@ def check_consistency(initial_accounts, before_time, after_time):
             print(f"  Account {a['id']}: reserved={a['reservedAmount']}, balance={a['balance']}")
 
     print("\n==== PROMETHEUS METRICS ====")
-    print(f"Transactions started:   {diff['started']}")
-    print(f"Transactions completed: {diff['completed']}")
-    print(f"Transactions failed:    {diff['failed']}")
-    print(f"Current active:         {diff['active']}")
+    print(f"Transactions started:   {diff['started']:.0f}")
+    print(f"Transactions completed: {diff['completed']:.0f}")
+    print(f"Transactions failed:    {diff['failed']:.0f}")
+    print(f"Current active:         {diff['active']:.0f}")
 
     print("\n==== CONSISTENCY REPORT ====")
     print(f"Money drift: {money_drift}")
@@ -372,23 +377,28 @@ def run_stage(account_ids, tps, duration, scenario=None, stage_results=None):
         if sleep_time > 0:
             time.sleep(sleep_time)
 
-def run_experiment(count, scenario):
+def run_experiment(count, scenario, account_ids):
     print("===========")
     print(f"\nExperiment no. {count}. Starting consistency-focused experiment of type {SYNC_MODE}")
-    run_sql_init()
-    run_spanner_init()
-    time.sleep(3)
+    # run_sql_init()
+    # run_spanner_init()
+    # time.sleep(3)
 
-    start_service('account')
-    start_service('transaction')
+    # start_service('account')
+    # start_service('transaction')
 
-    initial_accounts = get_accounts_full()
-    account_ids = [a["id"] for a in initial_accounts]
+        # Start transaction service with chaos if scenario requires it
+    if "Transaction service crash (local)" in scenario["name"]:
+        print("Starting transaction service with chaos point...")
+        stop_service('transaction')
+        start_service('transaction', chaos_point=scenario.get("chaos_point"))
+
+    initial_accounts = [a for a in get_accounts_full() if a["id"] in account_ids]
 
     before_time = time.time()
 
     stage_results = {}
-    run_stage(account_ids, 5, 60,
+    run_stage(account_ids, 3, 60,
                 scenario=scenario,
                 stage_results=stage_results)
 
@@ -405,30 +415,51 @@ def run_experiment(count, scenario):
                 for ts, val in series:
                     print(f"  {time.strftime('%H:%M:%S', time.localtime(float(ts)))} → {float(val):.1f}")
 
-    result = check_consistency(initial_accounts, before_time, after_time)
+    result = check_consistency(initial_accounts, before_time, after_time, account_ids)
     result["type"] = SYNC_MODE
     result["experiment_num"] = count
     result["scenario"] =  scenario["name"]
 
-    stop_service('account')
-    stop_service('transaction')
+    # stop_service('account')
+    # stop_service('transaction')
     
     return result
 
 if __name__ == "__main__":
     CSV_FILE = f"results/experiment_results_{SYNC_MODE}_{datetime.datetime.now()}.csv"
-    
-    exp_count = 10
+    start_service('account')
+    start_service('transaction')
+    exp_count = 1
     all_results = []
+    all_accounts = get_accounts_full()
+    account_groups = split_accounts_into_groups(all_accounts, group_size=5)
+
+    print(f"Total accounts: {len(all_accounts)}")
+    print(f"Total groups: {len(account_groups)}")
     # NEW_FAILURE_SCENARIOS = FAILURE_SCENARIOS[3:]
-    for scenario in FAILURE_SCENARIOS:
+    for index, scenario in enumerate(FAILURE_SCENARIOS):
         TEST_SCENARIO = scenario
     
+        # Pick account group for this scenario
+        account_ids = account_groups[index % len(account_groups)]
+        print("===========")
         print(f"Running experiment {TEST_SCENARIO['name']}")
         for i in range(exp_count):
-            result = run_experiment(i, TEST_SCENARIO)
-            all_results.append(result)
-    
+            try:
+                result = run_experiment(i, TEST_SCENARIO, account_ids)
+                all_results.append(result)
+                # clean up if needed
+                print("===CLEAN UP===")
+                if (result['money_drift'] > 0 or result['reservation_total_drift'] > 0):
+                    print("reconciling stuck transactions...")
+                    reconcile_accounts()
+                
+
+
+            except:
+                break
+    stop_service('account')
+    stop_service('transaction')
     fieldnames = all_results[0].keys()
     with open(CSV_FILE, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

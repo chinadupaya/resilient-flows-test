@@ -22,4 +22,7 @@ experiments/results
 java-maven-spring-boot
 ### VS Code ###
 .vscode/
+
+
 *restate-data*
+*.log
