@@ -1,19 +1,13 @@
 @startuml high-level-diagram
-left to right direction
+top to bottom direction
 skinparam componentStyle rectangle
 
 ' =========================
 ' Microservices Level
 ' =========================
 package "Microservices Level" {
-  component "app1" as app1
-  component "app2" as app2
-  component "app3" as app3
-
-  component "<size:20><&book>App Log 1<&book></size>" as appLog1
-  component "<size:20><&book>App Log 2<&book></size>" as appLog2
-  component "<size:20><&book>App Log 3<&book></size>" as appLog3
-
+  component "transactions" as app1
+  component "accounts" as app2
   
 }
 
@@ -21,20 +15,18 @@ package "Microservices Level" {
 ' Durable Workflows Level
 ' =========================
 package "Durable Workflows Level" {
-  component "Restate" as restate 
+  component "Restate" as restate #LightCoral
 }
 
 ' =========================
 ' Database Level
 ' =========================
 package "Database Level" {
-  database "db1\nPostgres" as db1
+  database "db1\nSpanner" as db1
   database "db2\nPostgres" as db2
-  database "db3\nSpanner" as db3
 
-  component "<size:20><&book>DB Log 1<&book></size>" as dbLog1
-  component "<size:20><&book>DB Log 2<&book></size>" as dbLog2
-  component "<size:20><&book>DB Log 3<&book></size>" as dbLog3
+  component "<size:10><&book>DB Log 1<&book></size>" as dbLog1 #MediumAquaMarine
+  component "<size:10><&book>DB Log 2<&book></size>" as dbLog2 #MediumAquaMarine
 }
 
 ' =========================
@@ -51,16 +43,15 @@ package "CDC Level" {
 '   component "DB\nConnector1" as debez1
 '   component "DB\nConnector2" as debez2
 '   component "DB\nConnector3" as spannerCDC
-  component "CDC Connector" as cdcConnector
+  component "Debezium" as cdcConnector #MediumAquaMarine
   
 }
 
-component "Drift Detector" as driftDetector
+component "Drift Detector" as driftDetector #MediumAquaMarine
 
 ' =========================
 ' External Consumers
 ' =========================
-component "BigQuery" as bigquery
 component "Other Listeners" as listeners
 
 ' =========================
@@ -73,19 +64,10 @@ component "Other Listeners" as listeners
 ' }
 
 ' =========================
-' App -> DurableState writes
-' =========================
-
-app1 --> appLog1
-app2 --> appLog2
-app3 --> appLog3
-
-' =========================
 ' App -> DB writes
 ' =========================
-appLog1 --> db1 : (2)
-appLog2 --> db2 : (2)
-appLog3 --> db3 : (2)
+app1 --> db1 : (2)
+app2 --> db2 : (2)
 
 
 ' =========================
@@ -93,41 +75,41 @@ appLog3 --> db3 : (2)
 ' =========================
 db1 --> dbLog1
 db2 --> dbLog2
-db3 --> dbLog3
 
 ' =========================
 ' CDC reads DB changes
 ' =========================
-dbLog1 --> cdcConnector : (2)
-dbLog2 --> cdcConnector : (2)
-dbLog3 --> cdcConnector : (2)
+dbLog1 --> cdcConnector : (3)
+dbLog2 --> cdcConnector : (3)
 
 
-' =========================
-' Drift Detector Accepts events
-' =========================
-driftDetector --> cdcConnector
-driftDetector --> bigquery
+' ' =========================
+' ' Drift Detector Accepts events
+' ' =========================
+' driftDetector --> cdcConnector
+' driftDetector --> listeners
 
 ' =========================
 ' CDC -> Kafka
 ' =========================
-cdcConnector --> kafka : (3)
-cdcConnector --> kafka : (3)
-cdcConnector --> kafka : (3)
+cdcConnector --> kafka : (4)
+cdcConnector --> kafka : (4)
 
 ' =========================
 ' Kafka -> Consumers
 ' =========================
-kafka --> bigquery : (4)
-kafka --> listeners : (4)
-' kafka --> restate : (4)
+kafka ..> listeners : (5)
+kafka ..> driftDetector : (5)
 
 ' =========================
 ' Workflow -> Apps
 ' =========================
-restate --> app1 : (1)
-restate --> app2 : (1)
-restate --> app3 : (1)
+restate ..> app1 : (1)
+restate ..> app2 : (1)
+
+' note top of restate
+' Tasked with synchronous
+' communication between apps
+' end note
 
 @enduml

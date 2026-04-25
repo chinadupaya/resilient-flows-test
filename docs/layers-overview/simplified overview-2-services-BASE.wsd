@@ -1,0 +1,69 @@
+@startuml high-level-diagram
+top to bottom direction
+skinparam componentStyle rectangle
+
+' =========================
+' Microservices Level
+' =========================
+package "Microservices Level" {
+  component "transactions" as app1
+  component "accounts" as app2
+  
+}
+
+
+' =========================
+' Database Level
+' =========================
+package "Database Level" {
+  database "db1\nSpanner" as db1
+  database "db2\nPostgres" as db2
+}
+
+' =========================
+' Messaging Level
+' =========================
+package "Messaging Level" {
+  queue "Kafka\nMessage Broker" as kafka
+}
+
+
+' =========================
+' External Consumers
+' =========================
+component "Other Listeners" as listeners
+
+' =========================
+' Observability
+' =========================
+' package "Observability Level" {
+'   component "Dashboards" as dashboards
+'   component "Logs" as logs
+'   component "Metrics" as metrics
+' }
+
+' =========================
+' App -> DB writes
+' =========================
+app1 --> db1 : (2)
+app2 --> db2 : (2)
+
+' =========================
+' App -> App communication
+' =========================
+app1 <..> app2 : (1)
+
+' =========================
+' App -> Kafka -> App communication
+' =========================
+app1 <..> kafka : (3)
+app2 <..> kafka : (3)
+' =========================
+' Kafka -> Consumers
+' =========================
+kafka ..> listeners : (4)
+' kafka --> restate : (4)
+
+
+
+@enduml

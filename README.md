@@ -32,7 +32,7 @@ We will be using the same API call `POST /transactions` but create an additional
 - Java
 - Python
 
-## Running
+## Running all services
 1. Go to `/infrastructure` and run `docker compose up -d`
   - Initialization for transaction and account service is done automatically.
 2. Create the connectors from the same folder
@@ -59,7 +59,6 @@ mvn spring-boot:run
 restate-server
 ```
 
-
 6. Register service. Use the --force command only if developing locally and making changes
 ```
 restate deployments register --use-http1.1 --yes http://localhost:9091 --force 
@@ -68,3 +67,6 @@ restate deployments register --use-http1.1 --yes http://localhost:9091 --force
 
 See all topics:
 docker exec kafka kafka-topics --bootstrap-server kafka:29092 --list
+
+## Running only failure script
+- Follow all instructions from previous section except 4.

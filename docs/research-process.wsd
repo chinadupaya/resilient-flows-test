@@ -1,0 +1,41 @@
+@startuml researchprocess
+title Research Process
+
+start
+
+:Baseline System;
+note right
+2 microservices
+- Saga pattern
+- Async + sync interactions
+end note
+
+:Failure Tests;
+note right
+Measure:
+- Cross-service data consistency
+- Transaction completion rate
+end note
+
+:Enhanced System;
+note right
+Add CDC + durable workflows layer
+end note
+
+:Repeat Failure Tests;
+note right
+Compare metrics
+end note
+
+:Analysis;
+note right
+Identify patterns,
+integration constraints,
+and operational tradeoffs
+end note
+
+' Repeat Failure Tests --> Analysis
+' Analysis --> Failure Tests
+
+stop
+@enduml

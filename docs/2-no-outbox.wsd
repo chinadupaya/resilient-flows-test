@@ -37,7 +37,9 @@ package "PostgreSQL" {
 
   database "ACCOUNT table" as DB_ACCOUNT {
     [ID]
-    [AMOUNT]
+    [NAME]
+    [BALANCE]
+    [RESERVED_AMOUNT]
   }
 
 
@@ -65,8 +67,8 @@ package "Apache Kafka" {
 ' REST endpoints
 ' =====================
 
-Client --> ACCT : POST /account
-Client --> TRNSC : POST /transactions\nGET /transactions/{transactionId}
+Client --> ACCT : GET /accounts
+Client --> TRNSC : POST /transactions\nGET /transactions
 ' Client --> OHS : GET /account/{accountId}\nGET /transactions/{transactionId}
 
 ' =====================
@@ -102,13 +104,13 @@ THS_EH ...[#0000FF]> K_ACCOUNT : <font color=blue>subscribes to
 THS_EH ...[#0000FF]> K_TRANSACTION : <font color=blue>ssubscribes to
 THS_EH --> BQ : pushes to
 
-note bottom of SPRINGPKG
-Considerations:
-- Idempotency keys
-- Dead letter queue
-- Circuit breaker for REST calls
- between microservices
-end note
+' note bottom of SPRINGPKG
+' Considerations:
+' - Idempotency keys
+' - Dead letter queue
+' - Circuit breaker for REST calls
+'  between microservices
+' end note
 
 note bottom of SPRINGPKG
 Events are published to Kafka
