@@ -42,7 +42,6 @@ public class TransactionController {
 
     @PostMapping
     public ResponseEntity<?> createTransaction(@RequestBody CreateTransactionRequest request) {
-        // Validate type field is present
         if (request.getType() == null || request.getType().isEmpty()) {
             return ResponseEntity.badRequest().body("Field 'type' is required (sync or async)");
         }
@@ -53,7 +52,6 @@ public class TransactionController {
         if(TransactionType.SYNC.name().equals(type)) {
             
             Transaction transaction = transactionService.createTransaction(request);
-            // Transaction transaction = TransactionWorkflowClient.fromClient(restateClient).run(request);
             if (TransactionStatus.COMPLETED.name().equals(transaction.getStatus())) {
                 return ResponseEntity.status(HttpStatus.CREATED).body(transaction);
             } else {
@@ -68,7 +66,7 @@ public class TransactionController {
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(transaction);
             }
         } else if (TransactionType.ASYNC.name().equals(type)) {
-            // Asynchronous flow - publish to Kafka and return accepted
+            // Asynchronous flow 
             Transaction transaction = transactionService.createTransactioAsync(request);
 
             return ResponseEntity.status(HttpStatus.ACCEPTED)

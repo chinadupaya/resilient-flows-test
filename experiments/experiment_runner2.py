@@ -12,7 +12,7 @@ PROMETHEUS_URL = "http://localhost:9095"
 ACCOUNT_SERVICE_URL = "http://localhost:7070/api/v1/accounts"
 TRANSACTION_SERVICE_URL = "http://localhost:9090/api/v1/transactions"
 
-SYNC_MODE = "SYNC" # [SYNC, ASYNC, SYNCV2]
+SYNC_MODE = "ASYNC" # [SYNC, ASYNC, SYNCV2]
 
 FAILURE_STAGE_INDEX = 2
 FAILURE_DURATION = 3
@@ -25,30 +25,36 @@ traffic_pause_event.clear()
 
 FAILURE_SCENARIOS = [
     {
-        "name": "Account DB failure",
-        "failure_cmd": ["docker", "stop", "postgres-account"],
-        "recovery_cmd": ["docker", "start", "postgres-account"],
-    },
-    {
-        "name": "Kafka failure",
-        "failure_cmd": ["docker", "stop", "kafka"],
-        "recovery_cmd": ["docker", "start", "kafka"],
-    },
-    {
-        "name": "Account service crash (local)"
-    },
-    {
-        "name": "Transaction service crash (local) - after reserve",
-        "chaos_point": "AFTER_RESERVE",
-    },
-    {
-        "name": "Transaction service crash (local) - after compliance",
-        "chaos_point": "AFTER_COMPLIANCE",
-    },
-    {
-        "name": "Transaction service crash (local) - after commit",
-        "chaos_point": "AFTER_COMMIT",
+        "name": "No Failure",
+        "failure_cmd": [],
+        "recovery_cmd": [],
+
     }
+    # {
+    #     "name": "Account DB failure",
+    #     "failure_cmd": ["docker", "stop", "postgres-account"],
+    #     "recovery_cmd": ["docker", "start", "postgres-account"],
+    # },
+    # {
+    #     "name": "Kafka failure",
+    #     "failure_cmd": ["docker", "stop", "kafka"],
+    #     "recovery_cmd": ["docker", "start", "kafka"],
+    # },
+    # {
+    #     "name": "Account service crash (local)"
+    # }
+    # {
+    #     "name": "Transaction service crash (local) - after reserve",
+    #     "chaos_point": "AFTER_RESERVE",
+    # }
+    # {
+    #     "name": "Transaction service crash (local) - after compliance",
+    #     "chaos_point": "AFTER_COMPLIANCE",
+    # }
+    # {
+    #     "name": "Transaction service crash (local) - after commit",
+    #     "chaos_point": "AFTER_COMMIT",
+    # }
 ]
 
 ACCOUNT_SERVICE_PROCESS = None
@@ -217,7 +223,10 @@ def inject_failure_after_delay(delay, scenario, stage_results):
         failure_end = time.time()
         stage_results["failure_window"] = capture_failure_window(failure_start, failure_end)
 
-    threading.Thread(target=_inject, daemon=True).start()
+    # threading.Thread(target=_inject, daemon=True).start()
+    t = threading.Thread(target=_inject)
+    t.start()
+    return t
 
 # Commands
 def run_sql_init():
@@ -354,8 +363,9 @@ def run_stage(account_ids, tps, duration, scenario=None, stage_results=None):
 
     delay = 1.0 / tps
     end_time = time.time() + duration
-    if scenario and stage_results is not None:
-        inject_failure_after_delay(duration * 0.3, scenario, stage_results)  # fail halfway through
+    failure_thread = None
+    if scenario and stage_results is not None and scenario["name"] != "No Failure":
+        failure_thread = inject_failure_after_delay(duration * 0.3, scenario, stage_results)  # fail halfway through
 
     while time.time() < end_time and not stop_event.is_set():
         if traffic_pause_event.is_set():
@@ -376,10 +386,12 @@ def run_stage(account_ids, tps, duration, scenario=None, stage_results=None):
         sleep_time = delay - elapsed
         if sleep_time > 0:
             time.sleep(sleep_time)
-
+    if failure_thread:
+        failure_thread.join()
 def run_experiment(count, scenario, account_ids):
     print("===========")
-    print(f"\nExperiment no. {count}. Starting consistency-focused experiment of type {SYNC_MODE}")
+    print(f"\nExperiment no. {count}. Starting consistency-focused experiment of type {SYNC_MODE}.")
+    print(f"Failure scenario: {scenario['name']}")
     # run_sql_init()
     # run_spanner_init()
     # time.sleep(3)
@@ -398,7 +410,7 @@ def run_experiment(count, scenario, account_ids):
     before_time = time.time()
 
     stage_results = {}
-    run_stage(account_ids, 3, 60,
+    run_stage(account_ids, 3, 45,
                 scenario=scenario,
                 stage_results=stage_results)
 
@@ -429,7 +441,7 @@ if __name__ == "__main__":
     CSV_FILE = f"results/experiment_results_{SYNC_MODE}_{datetime.datetime.now()}.csv"
     start_service('account')
     start_service('transaction')
-    exp_count = 1
+    exp_count = 10
     all_results = []
     all_accounts = get_accounts_full()
     account_groups = split_accounts_into_groups(all_accounts, group_size=5)
@@ -440,11 +452,11 @@ if __name__ == "__main__":
     for index, scenario in enumerate(FAILURE_SCENARIOS):
         TEST_SCENARIO = scenario
     
-        # Pick account group for this scenario
-        account_ids = account_groups[index % len(account_groups)]
         print("===========")
         print(f"Running experiment {TEST_SCENARIO['name']}")
         for i in range(exp_count):
+            # Pick account group for this
+            account_ids = account_groups[i % len(account_groups)]
             try:
                 result = run_experiment(i, TEST_SCENARIO, account_ids)
                 all_results.append(result)
@@ -453,11 +465,12 @@ if __name__ == "__main__":
                 if (result['money_drift'] > 0 or result['reservation_total_drift'] > 0):
                     print("reconciling stuck transactions...")
                     reconcile_accounts()
-                
 
-
-            except:
-                break
+            except Exception as e:
+                print("❌ Experiment failed:", e)
+                import traceback
+                traceback.print_exc()
+                continue
     stop_service('account')
     stop_service('transaction')
     fieldnames = all_results[0].keys()

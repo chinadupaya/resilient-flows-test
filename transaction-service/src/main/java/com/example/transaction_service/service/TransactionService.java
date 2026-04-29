@@ -120,6 +120,7 @@ public class TransactionService {
 
             if (!runComplianceChecks(transaction)) {
                 releaseFunds(transaction, reservationRequest);
+                transactionFailedCounter.increment();
                 return transaction;
             }
 
@@ -263,7 +264,7 @@ public class TransactionService {
 
     public Transaction failTransaction(String transactionId, String reason) {
         Transaction transaction = getTransactionOrThrow(transactionId);
-        transactionFailedCounter.increment();
+        // transactionFailedCounter.increment();
         return fail(transaction, reason);
     }
             
@@ -319,8 +320,16 @@ public class TransactionService {
 
         // Check if reservation was successful
         if (!"SUCCESS".equals(event.status())) {
-            transactionFailedCounter.increment();
             fail(transaction, "Account reservation failed: " + event.message());
+            transactionProducer.publishTransactionFailed(
+                new TransactionFailedEvent(
+                    event.transactionId(),
+                    event.accountId(),
+                    event.reservedAmount(),
+                    "Account reservation failed: " + event.message()
+                )
+            );
+    
             return;
         }
 
@@ -331,12 +340,17 @@ public class TransactionService {
             return;
         }
 
+        chaosPoint("AFTER_RESERVE");
+
 
         // Run compliance checks
         if (!runComplianceChecks(transaction)) {
             requestCompensation(transaction, "Compliance failed");
+            transactionFailedCounter.increment();
             return;
         }
+
+        chaosPoint("AFTER_COMPLIANCE");
 
         if (!updateSagaState(transaction,
                 SagaState.ACCOUNT_RESERVATION_SUCCESS,
@@ -362,6 +376,7 @@ public class TransactionService {
         Transaction transaction = transactionRepository
             .findById(event.transactionId().toString())
             .orElseThrow(() -> new RuntimeException("Transaction not found: " + event.transactionId()));
+        chaosPoint("AFTER_COMMIT");
         
         if (!updateSagaState(transaction,
                 SagaState.ACCOUNT_COMMIT_REQUESTED,
@@ -408,7 +423,7 @@ public class TransactionService {
             ResponseEntity<Void> response;
 
             switch (state) {
-
+                case COMPENSATION_REQUESTED:
                 case ACCOUNT_RESERVATION_SUCCESS:
                 case ACCOUNT_RESERVATION_REQUESTED:
                     log.info("Compensation = RELEASE for {}", tx.getId());
@@ -519,7 +534,7 @@ public class TransactionService {
         transaction.setUpdatedAt(Instant.now());
         transactionRepository.save(transaction);
         log.info("Transaction {} FAILED: {}", transaction.getId(), reason);
-        // transactionFailedCounter.increment();
+        transactionFailedCounter.increment();
         return transaction;
     }
 
@@ -531,9 +546,9 @@ public class TransactionService {
             return;
         }
 
-        transaction.setStatus(TransactionStatus.FAILED.name());
-        transaction.setFailureReason(reason);
-        transactionRepository.save(transaction);
+        // transaction.setStatus(TransactionStatus.FAILED.name());
+        // transaction.setFailureReason(reason);
+        // transactionRepository.save(transaction);
 
         AccountReservationRequest request =
                 new AccountReservationRequest(

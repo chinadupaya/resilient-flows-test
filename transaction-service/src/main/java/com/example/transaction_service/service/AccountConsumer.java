@@ -35,15 +35,12 @@ public class AccountConsumer {
         log.info("Handling reservation response for transaction {}: {}", 
             event.transactionId(), event.status());
         
-        // Your logic to update transaction saga state based on reservation success/failure
         transactionService.handleReservationResponse(event);
     }
 
     private void handleCommitResponse(AccountCommitEvent event) {
         log.info("Handling commit response for transaction {}: {}", 
             event.transactionId(), event.success());
-        
-        // Your logic to mark transaction as completed
         transactionService.handleCommitResponse(event);
     }
 }
