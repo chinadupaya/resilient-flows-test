@@ -1,6 +1,6 @@
 # Saga Pattern with CDC and Workflow Engines
 
-This repository contains two Saga pattern implementations designed for experimenting with Debezium for data reconciliation between microservices and Restate to compliment resiliency for durable transactions.
+This repository contains two Saga pattern implementations designed for experimenting with Debezium for data reconciliation between microservices and Restate to complement resiliency for durable transactions.
 
 ## Project Goal
 Experiment with how CDC + Durable Engines layers on top of heterogeneous microservices helps with data reconciliation and resiliency. This setup intentionally accepts the volatility of direct Kafka publishing (async) or REST calls (sync) to observe how these 2 layers can detect and help reconcile inconsistencies.
@@ -14,16 +14,10 @@ Experiment with how CDC + Durable Engines layers on top of heterogeneous microse
 
 - Communication: Direct HTTP REST calls between services
 
-We will be using the same API call `POST /transactions` but create an additional argument if they are sync or async `type=sync`or `type=async`
+We will be using the same API call `POST /transactions` but create an additional argument if they are sync or async `type=sync`,`type=syncv2`, or `type=async`
 
 ## Failure Scenarios
 - One failure each for async and sync processes
-
-# Ports Overview (localhost)
-- Account service 7070
-- Transaction service 9090
-  - Restate connection port 9091
-- Restate
 
 # To Run locally:
 
